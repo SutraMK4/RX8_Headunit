@@ -11,12 +11,17 @@ TODO (your design pass):
 - Add startup animation
 """
 
+import os
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QGridLayout
 )
 from PyQt5.QtCore import Qt, QTimer
-from PyQt5.QtGui import QFont
+from PyQt5.QtGui import QFont, QPixmap
+from PyQt5.QtSvg import QSvgWidget
 from core import theme
+
+# Resolve image paths relative to the project root (one level up from screens/)
+_IMG_DIR = os.path.join(os.path.dirname(__file__), "..", "images")
 
 
 class HomeScreen(QWidget):
@@ -37,8 +42,16 @@ class HomeScreen(QWidget):
         layout.setContentsMargins(24, 20, 24, 12)
         layout.setSpacing(16)
 
-        # ── Title ──────────────────────────────────────────────────
-        title = QLabel("RX-8 HEAD UNIT")
+        # ── Title row: Mazda logo · text · RX-8 logo ──────────────
+        title_row = QHBoxLayout()
+        title_row.setContentsMargins(0, 0, 0, 0)
+        title_row.setSpacing(14)
+
+        mazda_svg = QSvgWidget(os.path.join(_IMG_DIR, "Mazda_1997_logos-world.svg"))
+        mazda_svg.setFixedSize(96, 96)
+        mazda_svg.setStyleSheet("background: transparent;")
+
+        title = QLabel("Ciao Roger!")
         title.setStyleSheet(f"""
             color: {theme.ACCENT};
             font-size: {theme.FONT_SIZE_XL}pt;
@@ -46,7 +59,17 @@ class HomeScreen(QWidget):
             letter-spacing: 4px;
         """)
         title.setAlignment(Qt.AlignCenter)
-        layout.addWidget(title)
+
+        rx8_svg = QSvgWidget(os.path.join(_IMG_DIR, "Rx 8 Logo Vector.svg"))
+        rx8_svg.setFixedSize(144, 96)
+        rx8_svg.setStyleSheet("background: white;")
+
+        title_row.addStretch()
+        title_row.addWidget(mazda_svg, 0, Qt.AlignVCenter)
+        title_row.addWidget(title, 0, Qt.AlignVCenter)
+        title_row.addWidget(rx8_svg, 0, Qt.AlignVCenter)
+        title_row.addStretch()
+        layout.addLayout(title_row)
 
         subtitle = QLabel("2004 · 6-PORT · 238HP · 6MT")
         subtitle.setStyleSheet(f"color: {theme.TEXT_DIM}; font-size: {theme.FONT_SIZE_SM}pt; letter-spacing: 3px;")
