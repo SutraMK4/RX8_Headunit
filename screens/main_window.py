@@ -47,12 +47,22 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.stack, stretch=1)
 
         # ── Bottom nav bar ─────────────────────────────────────────
-        self.nav_bar = NavBar(self)
+        # Layout v1 (original) or v2 ("Night drive", from Figma)
+        self.layout_version = state.get("display", "layout", default="v1")
+        if self.layout_version == "v2":
+            from screens.v2_widgets import NavBarV2
+            self.nav_bar = NavBarV2(self)
+        else:
+            self.nav_bar = NavBar(self)
         layout.addWidget(self.nav_bar)
 
         # ── Screens ────────────────────────────────────────────────
         self.screens = {}
-        for name, cls in (("home",       HomeScreen),
+        if self.layout_version == "v2":
+            from screens.home_screen_v2 import HomeScreenV2 as home_cls
+        else:
+            home_cls = HomeScreen
+        for name, cls in (("home",       home_cls),
                           ("gauges",     GaugeScreen),
                           ("navigation", NavigationScreen),
                           ("audio",      AudioScreen),

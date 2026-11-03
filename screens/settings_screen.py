@@ -208,6 +208,17 @@ class SettingsScreen(QWidget):
         timeout_row.add(self._timeout)
         section.add(timeout_row)
 
+        layout_row = Row("Layout")
+        self._layout = QComboBox()
+        self._layout.addItems(["v1", "v2"])
+        self._layout.setCurrentText(self.state.get("display", "layout", default="v1"))
+        self._layout.setStyleSheet(combo_style())
+        layout_row.add(self._layout)
+        layout_hint = QLabel("v2 = Night drive (Figma). Save, then restart the app.")
+        layout_hint.setStyleSheet(f"color: {theme.TEXT_DIM}; font-size: {theme.FONT_SIZE_SM}pt;")
+        layout_row.add(layout_hint)
+        section.add(layout_row)
+
         full_row = Row("Fullscreen")
         self._fullscreen_cb = QCheckBox()
         self._fullscreen_cb.setChecked(self.state.get("display", "fullscreen", default=False))
@@ -357,6 +368,7 @@ class SettingsScreen(QWidget):
     def _save_all(self):
         self._store_data_settings()
         self.state.set("debug",      "verbose",        self._verbose_cb.isChecked())
+        self.state.set("display",    "layout",         self._layout.currentText())
         self.state.set("display",    "brightness",     self._brightness.value())
         self.state.set("display",    "fullscreen",     self._fullscreen_cb.isChecked())
         self.state.set("audio",      "default_volume", self._audio_vol.value())

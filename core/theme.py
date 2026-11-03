@@ -87,3 +87,34 @@ GLOBAL_STYLESHEET = f"""
         height: 0px;
     }}
 """
+
+
+# ══════════════════════════════════════════════════════════════════
+#  Layout v2 — "Night drive" (Figma: RX-8 · Night drive startup)
+#  Values taken from the Figma frame (1440 × 960). The head unit screen
+#  is 1024 × 600, so sizes are scaled by V2_SCALE; small text is kept at
+#  V2_MIN_TEXT px so it stays readable on a 7" screen.
+# ══════════════════════════════════════════════════════════════════
+V2_SCALE      = 1024 / 1440      # 0.711
+V2_MIN_TEXT   = 10               # px, floor for the tiny mono labels
+
+
+def v2px(figma_px):
+    """Figma size → screen px (layout, spacing, big text)."""
+    return int(round(figma_px * V2_SCALE))
+
+
+def v2text(figma_px):
+    """Figma text size → screen px, never below V2_MIN_TEXT."""
+    return max(V2_MIN_TEXT, int(round(figma_px * V2_SCALE)))
+
+
+V2_BG          = "#070a0d"   # frame background
+V2_SURFACE     = "#0f171c"   # tile fill (approx., the real fill is in the SVG)
+V2_TEXT        = "#e8f0f2"   # primary text
+V2_MUTED       = "#92a7af"   # secondary text, labels
+V2_CYAN        = "#57e7ed"   # status / technical accent
+V2_YELLOW      = "#e5ff43"   # primary accent (active, hero)
+V2_RULE        = "#293a43"   # hairlines
+V2_ON_YELLOW   = "#070a0d"   # title text on the yellow tile
+V2_ON_YELLOW_2 = "#3a4512"   # secondary text on the yellow tile

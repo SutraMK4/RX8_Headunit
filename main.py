@@ -20,6 +20,8 @@ def main():
     ap = argparse.ArgumentParser(description="RX-8 head unit")
     ap.add_argument("--debug", action="store_true",
                     help="verbose logging, open the debug panel at start")
+    ap.add_argument("--layout", choices=["v1", "v2"],
+                    help="UI layout for this run (overrides the saved setting)")
     args, qt_args = ap.parse_known_args()
 
     app = QApplication([sys.argv[0]] + qt_args)
@@ -33,6 +35,12 @@ def main():
                  stall_ms=state.get("debug", "stall_ms", default=diag.STALL_MS),
                  args=" ".join(sys.argv[1:]))
     log = logging.getLogger("rx8")
+    if args.layout:
+        state.set("display", "layout", args.layout)
+
+    from core import fonts
+    with diag.timed("startup.fonts", slow_ms=None):
+        fonts.load()
 
     with diag.timed("startup.total", slow_ms=None):
         from core import theme

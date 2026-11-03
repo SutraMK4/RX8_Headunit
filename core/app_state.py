@@ -26,6 +26,7 @@ DEFAULT_CONFIG = {
         "timeout": 30,
     },
     "display": {
+        "layout": "v1",         # v1 = original UI, v2 = "Night drive" (Figma)
         "brightness": 80,
         "timeout_seconds": 0,   # 0 = never
         "fullscreen": False,
@@ -41,6 +42,7 @@ DEFAULT_CONFIG = {
     },
     "system": {
         "hostname": "rx8-headunit",
+        "driver_name": "Roger",   # greeting on the v2 home screen
     },
     "debug": {
         "verbose": False,     # DEBUG-level logging (also: py main.py --debug)

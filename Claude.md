@@ -93,6 +93,30 @@ tools/run_emulator.py   ELM327-emulator launcher with Windows disconnect fix
 samples/                small CSV recorded from ELM327-emulator
 ```
 
+### Layout v2 and the Figma workflow
+
+- Layout is chosen at start: config `display.layout` ("v1" default, "v2") or
+  `py main.py --layout v2`. `MainWindow` picks `HomeScreenV2` + `NavBarV2`
+  for v2; other screens are still v1.
+- Figma source: file `CBKo9oyYbDV1pKuGCFEcy5`, frame `2:2` "RX-8 · Night
+  drive startup" (1440 × 960). Roger is on Figma Starter with a View seat:
+  **6 MCP read calls per month**. Use one `get_design_context` per frame
+  (includes screenshot); avoid extra reads.
+- The cloud workspace cannot download from figma.com. Put the asset ids in
+  `tools/fetch_figma_assets.py`, Roger runs it, then stage the SVGs from
+  `assets/<screen>/` via the device bridge. Links expire after 7 days.
+- `core/theme.py` v2 section: colours from Figma, `v2px()` scales Figma px
+  by 1024/1440, `v2text()` keeps small text ≥ 10 px. Code in
+  `home_screen_v2.py` keeps the original Figma coordinates so it can be
+  compared with the design.
+- The global QSS sets `font-family` on every QLabel, which overrides
+  `setFont()`. v2 labels use `v2_widgets.label_style()` (names the family).
+- Fonts are bundled (`core/fonts.py`, `assets/fonts/`). Orbitron Bold is
+  the League of Moveable Type static file (Qt 5 cannot pick a weight from
+  the variable font); its ascent differs, `Canvas.label` corrects baseline.
+- Frame 1440 × 960 does not fit 1024 × 600 at one scale: tiles are drawn
+  108 instead of 120 Figma px high. Ask Roger to design at 1024 × 600.
+
 ### Diagnostics and the UI-thread rule
 
 - **Never block the UI thread** with network, serial, subprocess or file
@@ -150,7 +174,7 @@ samples/                small CSV recorded from ELM327-emulator
 
 | Screen | Status |
 |---|---|
-| Home | Working |
+| Home | Working. v2 layout from Figma (switch in Settings → Display) |
 | Gauges | Working with all four sources (tested against ELM327-emulator) |
 | Navigation | Launches Organic Maps, gpsd in background thread, NO FIX fallback. RECALC/NORTH stubs |
 | Audio | Skeleton: TODO stubs for OpenDash, volume, source switching, playback |

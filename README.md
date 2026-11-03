@@ -34,6 +34,7 @@ core/
   data_sources.py            Simulated / Live / Emulator / Replay sources
   data_manager.py            Owns the active source, forwards its signals
   diagnostics.py             Logging, timings, error capture, UI-freeze watchdog
+  fonts.py                   Loads the bundled fonts (assets/fonts)
   event_store.py             SQLite history of distinct events, sessions, metrics
   gps.py                     gpsd reader in a background thread
   theme.py                   All colours, fonts, sizes — edit here for design
@@ -48,6 +49,10 @@ screens/
 tools/
   obd_logger.py              Scan the car's PIDs, record OBD data to CSV
   run_emulator.py            ELM327-emulator launcher with a Windows disconnect fix
+  fetch_figma_assets.py      Downloads a Figma frame's SVG assets into assets/<screen>/
+assets/
+  fonts/                     Bundled fonts + OFL licences
+  home_v2/                   SVGs for the v2 home screen (from Figma)
 samples/
   emulator_sample.csv        Short recording from ELM327-emulator (for Replay)
 images/                      Logos
@@ -106,6 +111,43 @@ the `replay` source.
 
 CSV format: header `elapsed_s,RPM,COOLANT_TEMP,...`. Columns are python-obd
 command names, values are plain numbers (rpm, °C, km/h, %), empty = no reading.
+
+## Layouts (v1 / v2)
+
+Two UI layouts exist side by side:
+
+| | |
+|---|---|
+| `v1` | Original layout (default) |
+| `v2` | "Night drive", implemented from Figma: new home screen and bottom bar |
+
+Switch in **Settings → Display → Layout**, press Save, restart. Or for one run:
+
+```powershell
+py main.py --layout v2
+```
+
+So far only the home screen and the bottom bar have a v2 design; the other
+screens use their v1 content under the v2 bar.
+
+### Figma → code workflow
+
+1. Design a frame in Figma, ideally at **1024 × 600** (the real screen).
+2. Send Claude the frame link (right-click → Copy link to selection). Claude
+   reads layout, colours, fonts, text and SVG assets through the Figma
+   connector (Starter plan: 6 reads a month, about 1–2 per screen).
+3. Run the asset download Claude prepares (Claude's workspace cannot reach
+   figma.com, your PC can):
+   ```powershell
+   py tools/fetch_figma_assets.py home_v2
+   ```
+   SVGs land in `assets/<screen>/`. Figma's asset links expire after 7 days.
+4. Claude builds the screen, renders it, compares it with the Figma
+   screenshot.
+
+Fonts are bundled in `assets/fonts/` (Orbitron, Rajdhani, IBM Plex Mono; all
+SIL Open Font License, licence files next to them), so the UI looks the same
+on Windows, the VM and the Pi.
 
 ## Debugging
 
