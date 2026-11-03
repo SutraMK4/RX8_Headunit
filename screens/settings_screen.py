@@ -2,7 +2,7 @@
 screens/settings_screen.py
 ---------------------------
 Settings screen with all configuration sections:
-  - OBD (port, connect/disconnect, PID scan)
+  - Data source (simulated / live OBD / emulator / CSV replay, port, PID scan)
   - Display (brightness, timeout, fullscreen)
   - Audio (default volume, source)
   - Navigation (maps path, GPS device, units)
@@ -12,14 +12,16 @@ Settings screen with all configuration sections:
 Changes are saved to ~/.rx8_headunit/config.json via AppState.
 """
 
+import glob
 import subprocess
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QScrollArea, QFrame, QComboBox, QSlider, QLineEdit,
-    QCheckBox, QSpacerItem, QSizePolicy
+    QCheckBox, QSpacerItem, QSizePolicy, QFileDialog
 )
 from PyQt5.QtCore import Qt, QTimer
 from core import theme
+from core.data_sources import SOURCE_KINDS
 
 
 class SettingsScreen(QWidget):
@@ -72,6 +74,7 @@ class SettingsScreen(QWidget):
         layout.addWidget(self._section_startup())
         self._system_section = self._section_system()
         layout.addWidget(self._system_section)
+        layout.addWidget(self._section_diagnostics())
 
         # Save button
         save_btn = QPushButton("SAVE ALL SETTINGS")
@@ -95,39 +98,91 @@ class SettingsScreen(QWidget):
     # ── Section builders ───────────────────────────────────────────
 
     def _section_obd(self):
-        section = Section("OBD-II")
+        section = Section("DATA SOURCE")
 
-        # Port selection
-        port_row = Row("Port")
+        # Which source feeds the gauges
+        src_row = Row("Source")
+        self._data_source = QComboBox()
+        self._data_source.addItems(SOURCE_KINDS)
+        self._data_source.setCurrentText(self.state.get("data", "source", default="simulated"))
+        self._data_source.setStyleSheet(combo_style())
+        src_row.add(self._data_source)
+        section.add(src_row)
+
+        # OBD adapter port (live)
+        port_row = Row("OBD port")
         self._obd_port = QComboBox()
-        self._obd_port.addItems(["auto", "/dev/ttyUSB0", "/dev/ttyUSB1", "/dev/ttyACM0"])
-        self._obd_port.setCurrentText(self.state.get("obd", "port", default="auto"))
+        self._obd_port.setEditable(True)        # allow typing any path
         self._obd_port.setStyleSheet(combo_style())
+        self._obd_port.setMinimumWidth(320)
         port_row.add(self._obd_port)
+        refresh_btn = QPushButton("REFRESH")
+        refresh_btn.setStyleSheet(small_btn_style(theme.TEXT_SECONDARY))
+        refresh_btn.clicked.connect(self._refresh_ports)
+        port_row.add(refresh_btn)
         section.add(port_row)
+        self._refresh_ports()
 
-        # Connection status + buttons
-        ctrl_row = Row("Connection")
-        self._obd_status_lbl = QLabel(self.state.obd_status.upper())
+        # Emulator address
+        emu_row = Row("Emulator")
+        self._emu_port = QLineEdit(self.state.get("data", "emulator_port",
+                                                  default="socket://localhost:35000"))
+        self._emu_port.setStyleSheet(lineedit_style())
+        emu_row.add(self._emu_port)
+        section.add(emu_row)
+
+        # Replay file + speed + loop
+        rep_row = Row("Replay CSV")
+        self._replay_file = QLineEdit(self.state.get("data", "replay_file", default=""))
+        self._replay_file.setStyleSheet(lineedit_style())
+        rep_row.add(self._replay_file)
+        browse_btn = QPushButton("BROWSE")
+        browse_btn.setStyleSheet(small_btn_style(theme.TEXT_SECONDARY))
+        browse_btn.clicked.connect(self._browse_replay)
+        rep_row.add(browse_btn)
+        section.add(rep_row)
+
+        rep_opt_row = Row("Replay speed")
+        self._replay_speed = QComboBox()
+        self._replay_speed.addItems(["0.5", "1", "2", "4", "10"])
+        self._replay_speed.setCurrentText(
+            f"{float(self.state.get('data', 'replay_speed', default=1.0)):g}")
+        self._replay_speed.setStyleSheet(combo_style())
+        rep_opt_row.add(self._replay_speed)
+        self._replay_loop = QCheckBox("loop")
+        self._replay_loop.setChecked(self.state.get("data", "replay_loop", default=True))
+        self._replay_loop.setStyleSheet(f"color: {theme.TEXT_PRIMARY};")
+        rep_opt_row.add(self._replay_loop)
+        section.add(rep_opt_row)
+
+        # Status + actions
+        ctrl_row = Row("Status")
+        self._obd_status_lbl = QLabel("—")
+        self._obd_status_lbl.setWordWrap(True)
         self._obd_status_lbl.setStyleSheet(f"color: {theme.TEXT_SECONDARY}; font-size: {theme.FONT_SIZE_SM}pt;")
         ctrl_row.add(self._obd_status_lbl)
+        section.add(ctrl_row)
 
-        connect_btn = QPushButton("CONNECT")
-        connect_btn.setStyleSheet(small_btn_style(theme.SUCCESS_GREEN))
-        connect_btn.clicked.connect(self._obd_connect)
-        ctrl_row.add(connect_btn)
+        btn_row = Row("")
+        apply_btn = QPushButton("APPLY")
+        apply_btn.setStyleSheet(small_btn_style(theme.SUCCESS_GREEN))
+        apply_btn.clicked.connect(self._data_apply)
+        btn_row.add(apply_btn)
 
-        disconnect_btn = QPushButton("DISCONNECT")
-        disconnect_btn.setStyleSheet(small_btn_style(theme.WARN_RED))
-        disconnect_btn.clicked.connect(self._obd_disconnect)
-        ctrl_row.add(disconnect_btn)
+        stop_btn = QPushButton("STOP")
+        stop_btn.setStyleSheet(small_btn_style(theme.WARN_RED))
+        stop_btn.clicked.connect(self._data_stop)
+        btn_row.add(stop_btn)
 
         scan_btn = QPushButton("SCAN PIDs")
         scan_btn.setStyleSheet(small_btn_style(theme.ACCENT))
         scan_btn.clicked.connect(self._obd_scan)
-        ctrl_row.add(scan_btn)
+        btn_row.add(scan_btn)
+        btn_row._layout.addStretch()
+        section.add(btn_row)
 
-        section.add(ctrl_row)
+        if self.state.data is not None:
+            self.state.data.status_changed.connect(self._on_data_status)
         return section
 
     def _section_display(self):
@@ -265,10 +320,43 @@ class SettingsScreen(QWidget):
         self._refresh_system_stats()
         return section
 
+    def _section_diagnostics(self):
+        from core import diagnostics as diag
+        section = Section("DIAGNOSTICS")
+
+        row = Row("Debug panel")
+        open_btn = QPushButton("OPEN DEBUG PANEL")
+        open_btn.setStyleSheet(small_btn_style(theme.ACCENT))
+        open_btn.clicked.connect(self.main_window.open_debug_panel)
+        row.add(open_btn)
+        hint = QLabel("or press D")
+        hint.setStyleSheet(f"color: {theme.TEXT_DIM}; font-size: {theme.FONT_SIZE_SM}pt;")
+        row.add(hint)
+        row._layout.addStretch()
+        section.add(row)
+
+        vrow = Row("Verbose log")
+        self._verbose_cb = QCheckBox()
+        self._verbose_cb.setChecked(self.state.get("debug", "verbose", default=False))
+        self._verbose_cb.setStyleSheet(f"color: {theme.TEXT_PRIMARY};")
+        self._verbose_cb.toggled.connect(diag.set_verbose)
+        vrow.add(self._verbose_cb)
+        vrow._layout.addStretch()
+        section.add(vrow)
+
+        lrow = Row("Log file")
+        path = QLabel(diag.LOG_FILE)
+        path.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        path.setStyleSheet(f"color: {theme.TEXT_SECONDARY}; font-size: {theme.FONT_SIZE_SM}pt;")
+        lrow.add(path)
+        section.add(lrow)
+        return section
+
     # ── Actions ────────────────────────────────────────────────────
 
     def _save_all(self):
-        self.state.set("obd",        "port",           self._obd_port.currentText())
+        self._store_data_settings()
+        self.state.set("debug",      "verbose",        self._verbose_cb.isChecked())
         self.state.set("display",    "brightness",     self._brightness.value())
         self.state.set("display",    "fullscreen",     self._fullscreen_cb.isChecked())
         self.state.set("audio",      "default_volume", self._audio_vol.value())
@@ -280,29 +368,76 @@ class SettingsScreen(QWidget):
         self.state.set("system",     "hostname",       self._hostname.text())
         self.state.save_config()
 
-    def _obd_connect(self):
-        from core.obd_manager import OBDManager
-        self._obd_manager = OBDManager(self.state)
-        self._obd_manager.status_changed.connect(self._on_obd_status)
-        self._obd_manager.start()
+    # ── Data source ────────────────────────────────────────────────
 
-    def _obd_disconnect(self):
-        if hasattr(self, "_obd_manager"):
-            self._obd_manager.disconnect()
-        self._obd_status_lbl.setText("DISCONNECTED")
+    def _store_data_settings(self):
+        port = self._obd_port.currentText().strip() or "auto"
+        if " — " in port:                     # strip the description part
+            port = port.split(" — ", 1)[0]
+        self.state.set("data", "source",        self._data_source.currentText())
+        self.state.set("obd",  "port",          port)
+        self.state.set("data", "emulator_port", self._emu_port.text().strip())
+        self.state.set("data", "replay_file",   self._replay_file.text().strip())
+        self.state.set("data", "replay_speed",  float(self._replay_speed.currentText()))
+        self.state.set("data", "replay_loop",   self._replay_loop.isChecked())
+
+    def _data_apply(self):
+        """Save the data settings and (re)start the chosen source."""
+        self._store_data_settings()
+        self.state.save_config()
+        if self.state.data is not None:
+            self.state.data.switch(self._data_source.currentText())
+
+    def _data_stop(self):
+        if self.state.data is not None:
+            self.state.data.stop()
+
+    def _refresh_ports(self):
+        """Fill the OBD port list with what is actually plugged in."""
+        current = self.state.get("obd", "port", default="auto")
+        items = ["auto"]
+        # Stable Linux names first: they survive re-plugging and reboots
+        items += sorted(glob.glob("/dev/serial/by-id/*"))
+        try:
+            from serial.tools import list_ports
+            for p in sorted(list_ports.comports(), key=lambda p: p.device):
+                desc = p.description if p.description and p.description != "n/a" else ""
+                items.append(f"{p.device} — {desc}" if desc else p.device)
+        except ImportError:
+            pass
+        self._obd_port.clear()
+        self._obd_port.addItems(items)
+        match = [i for i in items if i == current or i.startswith(current + " — ")]
+        if match:
+            self._obd_port.setCurrentText(match[0])
+        else:
+            self._obd_port.setEditText(current)
+
+    def _browse_replay(self):
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Choose a recorded OBD log", self._replay_file.text(),
+            "CSV files (*.csv);;All files (*)")
+        if path:
+            self._replay_file.setText(path)
 
     def _obd_scan(self):
-        conn = self.state.obd_connection
-        if conn:
-            cmds = conn.supported_commands
-            print("[PID Scan] Supported commands:")
-            for cmd in sorted(cmds, key=lambda c: c.name):
-                print(f"  {cmd.name}")
-        else:
-            print("[PID Scan] Not connected")
+        names = self.state.data.supported_command_names() if self.state.data else []
+        if not names:
+            self._obd_status_lbl.setText("SCAN: connect a live or emulator source first")
+            return
+        print(f"[PID Scan] {len(names)} supported commands:")
+        for n in names:
+            print(f"  {n}")
+        self._obd_status_lbl.setText(f"SCAN: {len(names)} commands supported "
+                                     f"(full list printed to the console)")
 
-    def _on_obd_status(self, status):
-        self._obd_status_lbl.setText(status.upper())
+    def _on_data_status(self, kind, status, detail):
+        if kind:
+            self._data_source.setCurrentText(kind)   # show what is really running
+        text = f"{kind.upper()} — {status.upper()}" if kind else status.upper()
+        if detail:
+            text += f": {detail}"
+        self._obd_status_lbl.setText(text)
 
     def _refresh_system_stats(self):
         try:

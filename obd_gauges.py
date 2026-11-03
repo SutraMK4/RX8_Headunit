@@ -103,6 +103,7 @@ class GaugeWidget(QWidget):
         self._value = cfg["min"]
         self._target = cfg["min"]
         self._needle_angle = ARC_START_DEG  # degrees, Qt convention
+        self._available = True              # False = show "N/A"
 
         # Smooth needle animation
         self._anim_timer = QTimer(self)
@@ -113,7 +114,21 @@ class GaugeWidget(QWidget):
         self.setMinimumSize(240, 240)
 
     def set_value(self, v):
+        """Feed a reading. None means "not available": needle parks, readout shows N/A."""
+        if v is None:
+            self.set_available(False)
+            return
+        if not self._available:
+            self.set_available(True)
         self._target = max(self.cfg["min"], min(self.cfg["max"], v))
+
+    def set_available(self, available):
+        if available == self._available:
+            return
+        self._available = available
+        if not available:
+            self._target = self.cfg["min"]
+        self.update()
 
     def _animate_needle(self):
         target_angle = value_to_angle(self._target, self.cfg)
@@ -160,7 +175,7 @@ class GaugeWidget(QWidget):
 
         # Subtle ring glow when near warn
         cfg = self.cfg
-        if self._value >= cfg["warn"]:
+        if self._available and self._value >= cfg["warn"]:
             ratio = min(1.0, (self._value - cfg["warn"]) / (cfg["max"] - cfg["warn"]))
             glow_alpha = int(40 + ratio * 80)
             glow_col = QColor(C_ARC_WARN if self._value < cfg["danger"] else C_ARC_HOT)
@@ -312,11 +327,15 @@ class GaugeWidget(QWidget):
         cfg = self.cfg
 
         # Value readout (digital)
-        val_str = cfg["fmt"](self._value)
+        if self._available:
+            val_str = cfg["fmt"](self._value)
+            col = C_TEXT_HI if self._value < cfg["warn"] else (C_ARC_WARN if self._value < cfg["danger"] else C_ARC_HOT)
+        else:
+            val_str = "N/A"
+            col = C_TEXT_LO
         font = QFont("Courier New", max(11, int(r * 0.17)))
         font.setBold(True)
         p.setFont(font)
-        col = C_TEXT_HI if self._value < cfg["warn"] else (C_ARC_WARN if self._value < cfg["danger"] else C_ARC_HOT)
         p.setPen(QPen(col))
         p.drawText(QRectF(-r, r * 0.28, r * 2, r * 0.28), Qt.AlignCenter, val_str)
 

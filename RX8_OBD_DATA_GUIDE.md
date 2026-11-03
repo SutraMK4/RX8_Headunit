@@ -2,7 +2,7 @@
 
 Two parts: where to get synthetic OBD-II data for testing the head unit without the car, and a step-by-step plan for recording real data from the RX-8.
 
-Companion file: `obd_logger.py` (read-only scan and CSV logger, built on python-obd).
+Companion files: `tools/obd_logger.py` (read-only scan and CSV logger, built on python-obd) and `tools/run_emulator.py` (emulator launcher).
 
 ---
 
@@ -19,15 +19,21 @@ A Python program that pretends to be an ELM327 adapter plugged into a car. Your 
 - It has no OIL_TEMP, which is a useful test of the "unsupported gauge" path.
 - It can also simulate trouble codes, and it can build a profile of a real car (see step 14 below), so you can later emulate your own RX-8 at your desk.
 
-Tested in the sandbox on Linux: `python3 -m elm -b out.txt -s car` starts it, the first line of `out.txt` is the virtual port (for example `/dev/pts/0`), and `obd_logger.py scan --port /dev/pts/0` and `log` both worked against it (about 5 rows per second, values varying).
+Recommended on every OS, including Windows: TCP mode through the launcher.
 
-On Linux and in your VirtualBox VM: run it as above, then set the head unit's OBD port to the path it prints.
+```powershell
+py tools/run_emulator.py        # = elm -n 35000 -s car, with a Windows fix; leave it open
+```
 
-On Windows: there are no pseudo-terminals. Two routes, neither tested on Windows:
-1. Run the emulator in WSL or in the VM and test the head unit there.
-2. Use the emulator's `-p` option with a virtual COM port pair (for example com0com).
+Then in the head unit choose Source `emulator` (address `socket://localhost:35000`), or point the logger at it with `--port socket://localhost:35000`.
 
-I also tried its TCP mode (`-n 35000`) with a `socket://127.0.0.1:35000` port. python-obd failed with "Failed to set baudrate", so that route does not work with python-obd as it is.
+Two things made TCP mode work (updated 3 Nov 2026):
+- python-obd cannot detect a baud rate over a socket ("Failed to set baudrate"). Passing a fixed one (38400) fixes it. The head unit's emulator source and `obd_logger.py` both do this.
+- Plain `elm -n 35000` on Windows breaks after the first client disconnects: it floods the console with `[WinError 10053] An established connection was aborted` and never accepts a new connection. `tools/run_emulator.py` patches that. If you see the flood, close the emulator window and start it with the launcher.
+
+Alternative on Linux / in the VirtualBox VM: `python3 -m elm -b out.txt -s car` creates a pseudo-terminal; the first line of `out.txt` is the port (for example `/dev/pts/0`).
+
+Plain `elm` writes a DEBUG trace of every request (~2,600 lines a minute) as `elm.log` files into the folder you start it from. The launcher instead logs warnings only, to `~/.rx8_headunit/logs/emulator.log` (`--emu-verbose` for the full trace). Old `elm.log*` files can be deleted; git ignores them.
 
 ### Option B: Recorded datasets for a replay source
 
@@ -57,8 +63,8 @@ Everything here is read-only. The script requests standard values only. It never
 ### Before you go to the car (at your desk)
 
 1. Install Python 3 from python.org on the laptop. Tick "Add Python to PATH" in the installer. Check with `python --version` in a new PowerShell window.
-2. Install the library: `pip install obd`.
-3. Put `obd_logger.py` in your repo, for example in a `tools/` folder, and create a `data/` folder next to where you will run it.
+2. Install the libraries from the repo root: `py -m pip install -r requirements.txt`.
+3. `obd_logger.py` is already in the repo under `tools/`. Run the commands below from the repo root; the `data\` folder is created automatically.
 4. Plug the OBDLink SX into the laptop by itself. Open Device Manager, expand "Ports (COM & LPT)", and note the COM number (for example COM4). If no port appears, install the driver from OBDLink's support page.
 5. Optional sanity check: if you have the emulator running (Part 1), run `python tools\obd_logger.py scan --port <emulator port>` to see the output format before you are in the car.
 
@@ -86,7 +92,7 @@ Everything here is read-only. The script requests standard values only. It never
 13. Check the data. Open each CSV, confirm the columns you expect have values, and that rows are about 4 to 5 per second. Keep the original files untouched, work on copies.
 14. Optional: build an emulator profile of your car. ELM327-emulator includes a scanning tool (`obd_dictionary`) that queries every standard value one by one and builds a dictionary for that vehicle, which the emulator can then replay. Run it with the adapter connected to the car, following the emulator's README.
 15. Commit the scan report and the logs to the repo under `data/rx8/`. Give Claude the scan report: it decides which gauges the RX-8 can feed.
-16. Next software step: build a Replay data source in the head unit that plays these CSVs back into the gauges.
+16. Play the logs back in the head unit: Settings → Source `replay`, choose the CSV, APPLY.
 
 ### If something goes wrong
 

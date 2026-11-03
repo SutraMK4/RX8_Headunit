@@ -37,8 +37,8 @@ FONT_SIZE_XXL = 24
 
 # ── Dimensions ─────────────────────────────────────────────────────
 NAV_BAR_HEIGHT = 56      # bottom navigation bar
-SCREEN_W       = 800
-SCREEN_H       = 480
+SCREEN_W       = 1024    # Waveshare 7" HDMI IPS
+SCREEN_H       = 600
 CONTENT_H      = SCREEN_H - NAV_BAR_HEIGHT
 
 # ── Stylesheet snippets ────────────────────────────────────────────

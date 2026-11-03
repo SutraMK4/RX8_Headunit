@@ -26,19 +26,12 @@ from PyQt5.QtWidgets import (
 )
 from PyQt5.QtCore import Qt, QTimer
 from core import theme
-
-# ── gpsd (optional) ───────────────────────────────────────────────────
-# gpsd-py3 exposes a module-level singleton connection. Import is guarded
-# so the screen still works on a dev machine with no GPS / no gpsd.
-try:
-    import gpsd as _gpsd
-    _HAS_GPSD = True
-except ImportError:
-    _gpsd = None
-    _HAS_GPSD = False
+from core.diagnostics import timed, timed_fn, record_error
+from core.gps import GpsPoller
 
 
 # ── Organic Maps launch command discovery ─────────────────────────────
+@timed_fn("nav.find_organic_maps")
 def _find_organic_maps():
     """Return the command list to launch Organic Maps, or None if absent."""
     # Native package binaries (name varies by distro / build)
@@ -76,13 +69,12 @@ class NavigationScreen(QWidget):
         self.main_window = main_window
         self._build_ui()
 
-        # ── GPS polling (every 2 s) ───────────────────────────────────
-        self._gps_connected = False
-        self._gps_timer = QTimer(self)
-        self._gps_timer.setInterval(2000)
-        self._gps_timer.timeout.connect(self._poll_gps)
-        self._gps_timer.start()
-        self._poll_gps()  # immediate first read
+        # ── GPS: read in a background thread (core/gps.py) ─────────────
+        # Never poll gpsd from the UI thread: on Windows a refused
+        # connection takes ~1 s and froze the whole UI every poll.
+        self._gps = GpsPoller(parent=self)
+        self._gps.fix_changed.connect(self._top_bar.set_gps)
+        self._gps.start()
 
     def _build_ui(self):
         layout = QVBoxLayout(self)
@@ -104,43 +96,6 @@ class NavigationScreen(QWidget):
             on_gps=self._map_area.launch_navigation,
         )
         layout.addWidget(self._bottom)
-
-    # ── GPS ───────────────────────────────────────────────────────────
-    def _ensure_gpsd(self):
-        """Lazily (re)connect to gpsd. Returns True if connected."""
-        if not _HAS_GPSD:
-            return False
-        if self._gps_connected:
-            return True
-        try:
-            _gpsd.connect()          # defaults to localhost:2947
-            self._gps_connected = True
-        except Exception:
-            self._gps_connected = False
-        return self._gps_connected
-
-    def _poll_gps(self):
-        """Read a packet from gpsd and update the TopBar. Never raises."""
-        if not self._ensure_gpsd():
-            self._top_bar.set_gps(fix=False)
-            return
-        try:
-            packet = _gpsd.get_current()
-            # mode: 0=no mode, 1=no fix, 2=2D fix, 3=3D fix
-            if getattr(packet, "mode", 0) >= 2:
-                speed_kmh = None
-                try:
-                    speed_kmh = packet.hspeed * 3.6  # m/s → km/h
-                except Exception:
-                    speed_kmh = None
-                self._top_bar.set_gps(fix=True, mode=packet.mode, speed_kmh=speed_kmh)
-            else:
-                self._top_bar.set_gps(fix=False)
-        except Exception:
-            # Lost the connection / no data yet — drop to NO FIX, retry next tick
-            self._gps_connected = False
-            self._top_bar.set_gps(fix=False)
-
 
 class TopBar(QWidget):
     def __init__(self, state):
@@ -178,7 +133,7 @@ class TopBar(QWidget):
         layout.addWidget(self._speed_label)
 
     def set_gps(self, fix, mode=0, speed_kmh=None):
-        """Update GPS status + speed labels. Called by the poll timer."""
+        """Update GPS status + speed labels. Called from GpsPoller.fix_changed."""
         if fix:
             kind = "3D" if mode >= 3 else "2D"
             self._gps_label.setText(f"GPS: {kind} FIX")
@@ -370,8 +325,10 @@ class MapPlaceholder(QFrame):
             return
 
         try:
-            self._proc = subprocess.Popen(self._cmd)
-        except Exception:
+            with timed("nav.launch_organic_maps"):
+                self._proc = subprocess.Popen(self._cmd)
+        except Exception as e:
+            record_error("nav.launch_organic_maps", e)
             self._proc = None
             self._show_not_found()
             return

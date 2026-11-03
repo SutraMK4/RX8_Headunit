@@ -176,13 +176,17 @@ class StatusBar(QWidget):
     def refresh(self):
         status = self.state.obd_status
         colours = {
-            "connected":    theme.SUCCESS_GREEN,
+            "live":         theme.SUCCESS_GREEN,
+            "emulator":     theme.SUCCESS_GREEN,
+            "replay":       theme.SUCCESS_GREEN,
+            "simulated":    theme.WARN_ORANGE,
             "connecting":   theme.WARN_ORANGE,
             "error":        theme.WARN_RED,
-            "disconnected": theme.TEXT_DIM,
+            "stopped":      theme.TEXT_DIM,
+            "replay ended": theme.TEXT_DIM,
         }
         col = colours.get(status, theme.TEXT_DIM)
-        self._obd_lbl.setText(f"OBD: <span style='color:{col}'>{status.upper()}</span>")
+        self._obd_lbl.setText(f"DATA: <span style='color:{col}'>{status.upper()}</span>")
         self._obd_lbl.setTextFormat(Qt.RichText)
 
         # Pi CPU temp (Linux only)

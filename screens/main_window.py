@@ -13,11 +13,19 @@ from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtGui import QFont
 
 from core import theme
+from core.diagnostics import timed
 from screens.home_screen import HomeScreen
 from screens.gauge_screen import GaugeScreen
 from screens.navigation_screen import NavigationScreen
 from screens.audio_screen import AudioScreen
 from screens.settings_screen import SettingsScreen
+
+
+def timed_switch(fn):
+    def wrapper(self, name):
+        with timed(f"ui.switch_screen.{name}"):
+            return fn(self, name)
+    return wrapper
 
 
 class MainWindow(QMainWindow):
@@ -44,11 +52,14 @@ class MainWindow(QMainWindow):
 
         # ── Screens ────────────────────────────────────────────────
         self.screens = {}
-        self._add_screen("home",       HomeScreen(state, self))
-        self._add_screen("gauges",     GaugeScreen(state, self))
-        self._add_screen("navigation", NavigationScreen(state, self))
-        self._add_screen("audio",      AudioScreen(state, self))
-        self._add_screen("settings",   SettingsScreen(state, self))
+        for name, cls in (("home",       HomeScreen),
+                          ("gauges",     GaugeScreen),
+                          ("navigation", NavigationScreen),
+                          ("audio",      AudioScreen),
+                          ("settings",   SettingsScreen)):
+            with timed(f"startup.screen.{name}", slow_ms=None):
+                self._add_screen(name, cls(state, self))
+        self._debug_panel = None
 
         # ── Boot to configured default screen ──────────────────────
         start = state.config.get("startup", {}).get("default_screen", "home")
@@ -64,6 +75,15 @@ class MainWindow(QMainWindow):
         self.screens[name] = widget
         self.stack.addWidget(widget)
 
+    def open_debug_panel(self):
+        from screens.debug_panel import DebugPanel
+        if self._debug_panel is None:
+            self._debug_panel = DebugPanel(self)
+        self._debug_panel.show()
+        self._debug_panel.raise_()
+        self._debug_panel.activateWindow()
+
+    @timed_switch
     def switch_screen(self, name):
         if name in self.screens:
             self.stack.setCurrentWidget(self.screens[name])
@@ -87,6 +107,8 @@ class MainWindow(QMainWindow):
             self.switch_screen("audio")
         elif key == Qt.Key_5:
             self.switch_screen("settings")
+        elif key == Qt.Key_D:
+            self.open_debug_panel()
         super().keyPressEvent(event)
 
 

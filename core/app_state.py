@@ -5,13 +5,25 @@ Central application state shared across all screens.
 All screens get a reference to this object — no globals needed.
 """
 
+import copy
 import json
 import os
 
 DEFAULT_CONFIG = {
+    "data": {
+        # Where gauge values come from: simulated | live | emulator | replay
+        "source": "simulated",
+        "emulator_port": "socket://localhost:35000",
+        "replay_file": "",
+        "replay_speed": 1.0,
+        "replay_loop": True,
+    },
     "obd": {
+        # "auto" lets python-obd scan. On the Pi prefer the stable path
+        # /dev/serial/by-id/usb-... ; on Windows e.g. "COM5".
         "port": "auto",
-        "baudrate": 38400,
+        "fast": False,      # more reliable on the RX-8
+        "timeout": 30,
     },
     "display": {
         "brightness": 80,
@@ -30,6 +42,10 @@ DEFAULT_CONFIG = {
     "system": {
         "hostname": "rx8-headunit",
     },
+    "debug": {
+        "verbose": False,     # DEBUG-level logging (also: py main.py --debug)
+        "stall_ms": 250,      # UI freezes longer than this are recorded
+    },
     "startup": {
         "default_screen": "home",   # home | gauges | navigation | audio
         "fullscreen": False,
@@ -43,9 +59,11 @@ class AppState:
     def __init__(self):
         self.config = self._load_config()
 
-        # OBD connection — set by OBDManager, read by gauge screen
-        self.obd_connection = None
-        self.obd_status = "disconnected"   # disconnected | connecting | connected | error
+        # Data pipeline — set in main.py (core.data_manager.DataManager)
+        self.data = None
+        # Short status for the home screen, kept up to date by DataManager:
+        # simulated | live | emulator | replay | connecting | error | stopped
+        self.obd_status = "stopped"
 
         # Current screen tracking
         self.current_screen = self.config.get("startup", {}).get("default_screen", "home")
@@ -57,7 +75,7 @@ class AppState:
                 with open(CONFIG_PATH, "r") as f:
                     saved = json.load(f)
                 # Merge saved over defaults so new keys always exist
-                merged = DEFAULT_CONFIG.copy()
+                merged = copy.deepcopy(DEFAULT_CONFIG)
                 for section, values in saved.items():
                     if section in merged and isinstance(values, dict):
                         merged[section].update(values)
@@ -66,7 +84,7 @@ class AppState:
                 return merged
             except Exception:
                 pass
-        return DEFAULT_CONFIG.copy()
+        return copy.deepcopy(DEFAULT_CONFIG)
 
     def save_config(self):
         os.makedirs(os.path.dirname(CONFIG_PATH), exist_ok=True)

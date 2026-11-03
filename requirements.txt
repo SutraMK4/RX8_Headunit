@@ -12,3 +12,7 @@ obd>=0.7.1
 # if this is missing. The gpsd daemon itself is a system package on the Pi
 # (sudo apt install gpsd gpsd-clients).
 gpsd-py3>=0.3.0
+
+# Dev only (not needed on the Pi): ELM327 emulator for testing the live
+# OBD code path without the car. Run with:  py tools/run_emulator.py
+# ELM327-emulator>=3.0

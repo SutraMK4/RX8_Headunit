@@ -3,18 +3,17 @@ screens/gauge_screen.py
 ------------------------
 Hosts the OBD gauge cluster.
 Embeds the GaugeWidget components from obd_gauges.py directly.
-Handles OBD connection and wires live data to gauges.
 
-Simulated data is used when OBD is not connected.
+The screen does not know where values come from. It listens to
+state.data (core.data_manager.DataManager), which forwards whichever
+source is active: simulated, live OBD, ELM327 emulator or CSV replay.
+A value of None (unsupported PID, no connection) shows as N/A.
 """
 
-import math
-import random
-from PyQt5.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QGridLayout
-)
-from PyQt5.QtCore import Qt, QTimer
+from PyQt5.QtWidgets import QWidget, QVBoxLayout, QLabel, QGridLayout
+from PyQt5.QtCore import Qt
 from core import theme
+from core.diagnostics import timed
 
 # ── Import gauge widgets from the standalone file ──────────────────
 # obd_gauges.py lives in the project root — add it to path if needed
@@ -24,8 +23,9 @@ from obd_gauges import GaugeWidget
 
 # ── Gauge definitions ──────────────────────────────────────────────
 # Add / remove / reorder gauges here.
-# 'obd_cmd' maps to the python-obd command name (obd.commands.<name>)
-# 'scale'   converts the raw value to the gauge's display unit
+# 'key' is the python-obd command name (obd.commands.<NAME>). Data sources
+# deliver plain floats in python-obd's units (rpm, °C, km/h, %), so a
+# gauge in other units only needs its own 'fmt'.
 GAUGE_CONFIGS = [
     {
         "label":   "RPM",
@@ -37,8 +37,7 @@ GAUGE_CONFIGS = [
         "step":    1000,
         "minor":   5,
         "fmt":     lambda v: f"{v/1000:.1f}",
-        "obd_cmd": "RPM",
-        "scale":   lambda v: v.magnitude,
+        "key":     "RPM",
     },
     {
         "label":   "COOLANT",
@@ -50,8 +49,7 @@ GAUGE_CONFIGS = [
         "step":    10,
         "minor":   2,
         "fmt":     lambda v: f"{v:.0f}",
-        "obd_cmd": "COOLANT_TEMP",
-        "scale":   lambda v: v.magnitude,
+        "key":     "COOLANT_TEMP",
     },
     {
         "label":   "OIL TEMP",
@@ -63,8 +61,7 @@ GAUGE_CONFIGS = [
         "step":    10,
         "minor":   2,
         "fmt":     lambda v: f"{v:.0f}",
-        "obd_cmd": "OIL_TEMP",
-        "scale":   lambda v: v.magnitude,
+        "key":     "OIL_TEMP",
     },
     {
         "label":   "SPEED",
@@ -76,8 +73,7 @@ GAUGE_CONFIGS = [
         "step":    20,
         "minor":   4,
         "fmt":     lambda v: f"{v:.0f}",
-        "obd_cmd": "SPEED",
-        "scale":   lambda v: v.magnitude,
+        "key":     "SPEED",
     },
     {
         "label":   "THROTTLE",
@@ -89,8 +85,7 @@ GAUGE_CONFIGS = [
         "step":    10,
         "minor":   2,
         "fmt":     lambda v: f"{v:.0f}",
-        "obd_cmd": "THROTTLE_POS",
-        "scale":   lambda v: v.magnitude,
+        "key":     "THROTTLE_POS",
     },
     {
         "label":   "ENGINE LOAD",
@@ -102,10 +97,21 @@ GAUGE_CONFIGS = [
         "step":    10,
         "minor":   2,
         "fmt":     lambda v: f"{v:.0f}",
-        "obd_cmd": "ENGINE_LOAD",
-        "scale":   lambda v: v.magnitude,
+        "key":     "ENGINE_LOAD",
     },
 ]
+
+
+# Keys the data sources should deliver for this screen
+GAUGE_KEYS = tuple(cfg["key"] for cfg in GAUGE_CONFIGS)
+
+STATUS_COLOURS = {
+    "running":    theme.SUCCESS_GREEN,
+    "connecting": theme.WARN_ORANGE,
+    "finished":   theme.TEXT_SECONDARY,
+    "error":      theme.WARN_RED,
+    "idle":       theme.TEXT_DIM,
+}
 
 
 class GaugeScreen(QWidget):
@@ -113,94 +119,56 @@ class GaugeScreen(QWidget):
         super().__init__()
         self.state = state
         self.main_window = main_window
-        self._sim_phase = 0.0
-        self._sim_rpm = 800.0
-        self._sim_coolant = 65.0
-        self._sim_oil = 55.0
         self._build_ui()
-        self._start_data_loop()
+
+        if state.data is not None:
+            state.data.values_updated.connect(self.on_values)
+            state.data.status_changed.connect(self.on_status)
 
     def _build_ui(self):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(8, 8, 8, 4)
         layout.setSpacing(8)
 
-        # ── OBD status strip ───────────────────────────────────────
-        self._status_label = QLabel("OBD: SIMULATED")
-        self._status_label.setStyleSheet(f"""
-            color: {theme.WARN_ORANGE};
-            font-size: {theme.FONT_SIZE_SM}pt;
-            letter-spacing: 2px;
-        """)
+        # ── Data source status strip ───────────────────────────────
+        self._status_label = QLabel("DATA: STOPPED")
         self._status_label.setAlignment(Qt.AlignRight)
+        self._set_status_style(theme.TEXT_DIM)
         layout.addWidget(self._status_label)
 
         # ── Gauge grid (3 columns) ─────────────────────────────────
         grid = QGridLayout()
         grid.setSpacing(6)
-        self._gauges = []
+        self._gauges = {}
 
         for i, cfg in enumerate(GAUGE_CONFIGS):
             g = GaugeWidget(cfg)
             grid.addWidget(g, i // 3, i % 3)
-            self._gauges.append(g)
+            self._gauges[cfg["key"]] = g
 
         layout.addLayout(grid)
 
-    def _start_data_loop(self):
-        self._data_timer = QTimer(self)
-        self._data_timer.setInterval(80)
-        self._data_timer.timeout.connect(self._update_data)
-        self._data_timer.start()
+    def _set_status_style(self, colour):
+        self._status_label.setStyleSheet(f"""
+            color: {colour};
+            font-size: {theme.FONT_SIZE_SM}pt;
+            letter-spacing: 2px;
+        """)
 
-    def _update_data(self):
-        conn = self.state.obd_connection
+    # ── Slots ──────────────────────────────────────────────────────
+    def on_values(self, values):
+        with timed("ui.gauges_update", slow_ms=50):
+            for key, gauge in self._gauges.items():
+                gauge.set_value(values.get(key))
 
-        if conn and self.state.obd_status == "connected":
-            # ── Live OBD data ──────────────────────────────────────
-            self._status_label.setText("OBD: LIVE")
-            self._status_label.setStyleSheet(f"color: {theme.SUCCESS_GREEN}; font-size: {theme.FONT_SIZE_SM}pt;")
-
-            for i, cfg in enumerate(GAUGE_CONFIGS):
-                try:
-                    import obd
-                    cmd = obd.commands[cfg["obd_cmd"]]
-                    response = conn.query(cmd)
-                    if not response.is_null():
-                        value = cfg["scale"](response.value)
-                        self._gauges[i].set_value(value)
-                except Exception:
-                    pass  # Gauge keeps last value on error
-
+    def on_status(self, kind, status, detail):
+        if status == "running":
+            text = kind.upper()
+        elif status == "idle":
+            text = "STOPPED"
         else:
-            # ── Simulated data ─────────────────────────────────────
-            self._status_label.setText("OBD: SIMULATED")
-            self._status_label.setStyleSheet(f"color: {theme.WARN_ORANGE}; font-size: {theme.FONT_SIZE_SM}pt;")
-            self._run_simulation()
-
-    def _run_simulation(self):
-        self._sim_phase += 0.025
-
-        rpm = max(700, 850
-                  + math.sin(self._sim_phase) * 3000
-                  + math.sin(self._sim_phase * 2.3) * 1200
-                  + random.uniform(-30, 30))
-
-        if self._sim_coolant < 88:
-            self._sim_coolant += random.uniform(0.1, 0.3)
-        else:
-            self._sim_coolant = 88 + math.sin(self._sim_phase * 0.4) * 4
-
-        if self._sim_oil < self._sim_coolant - 5:
-            self._sim_oil += random.uniform(0.05, 0.2)
-        else:
-            self._sim_oil = self._sim_coolant + 8 + math.sin(self._sim_phase * 0.3) * 3
-
-        speed   = max(0, (rpm - 800) / 9000 * 180 + random.uniform(-5, 5))
-        throttle = max(0, min(100, (rpm - 800) / 8200 * 100 + random.uniform(-3, 3)))
-        load    = max(0, min(100, throttle * 0.85 + random.uniform(-2, 2)))
-
-        sim_values = [rpm, self._sim_coolant, self._sim_oil, speed, throttle, load]
-        for i, val in enumerate(sim_values):
-            if i < len(self._gauges):
-                self._gauges[i].set_value(val)
+            text = f"{kind.upper()} {status.upper()}"
+        if detail and status != "idle":
+            text += f"  ·  {detail}"
+        self._status_label.setText(f"DATA: {text}")
+        self._set_status_style(STATUS_COLOURS.get(status, theme.TEXT_SECONDARY))

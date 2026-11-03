@@ -1,268 +1,230 @@
-# RX-8 Head Unit — Project Summary & Claude Code Handoff
+# RX-8 Head Unit — Project Instructions for Claude
 
-## Project Goal
+Read this first. It reflects the decisions as of 3 Nov 2026 and supersedes
+the June 2026 version (Pi 5 8 GB + NVMe, DSI screen, Mausberry PSU and
+OpenAuto Pro are all **no longer the plan**).
 
-Replace the factory 7" tilt/pop-out navigation unit in a **2004 Mazda RX-8 Grand Touring** (yellow, 187th produced, 6-port 238hp, 6-speed manual) with a custom Raspberry Pi 5-based head unit. The replacement must fit the factory DIN slot, retain the motorised tilt mechanism, and integrate with the existing Bose 9-speaker audio system via a retention harness.
+## Who and how we work
 
-### Build priorities (in order)
-1. Modern offline navigation
-2. Android Auto / Apple CarPlay
-3. OBD/ECU gauge display
-4. Audio quality upgrade
+- Owner: Roger Suter. Claude acts as technical lead: architecture, hardware
+  selection, wiring, integration, documentation.
+- Deliver complete, runnable files, not fragments. Keep `README.md` and this
+  file in sync with the code whenever behaviour or structure changes.
+- Roger does the visual design pass himself (`core/theme.py`, screen
+  layouts). Claude handles technical scaffolding and integration.
+- Roger is new to git: give explicit, copy-pasteable commands for Windows
+  PowerShell and Raspberry Pi OS.
+- Do not state hardware facts from memory. If unsure, say so and put it on
+  the verification backlog below.
 
----
+## Goal
 
-## Hardware Decisions (Finalised)
+Replace the factory 7" tilt/pop-out nav unit in a **2004 Mazda RX-8 Grand
+Touring** (yellow, 6-port 238 hp, 6-speed manual) with a Raspberry Pi 5 and a
+7" touchscreen:
 
-| Component | Part | Purpose |
+- Live OBD-II gauges
+- Android Auto (OpenDash) as the main nav and audio source when the phone
+  (Android) is connected
+- Offline navigation fallback: Organic Maps, Switzerland map
+- Audio/source UI and settings
+- Keep the Bose amp (Metra 70-7552), steering wheel controls and the factory
+  tilt mechanism
+- Offline-first: no SIM, no reliance on internet
+
+## Hardware (decided, not yet ordered)
+
+| Part | Choice | Notes |
 |---|---|---|
-| Computer | Raspberry Pi 5 8GB + NVMe SSD | Main compute |
-| Screen | Waveshare 7" DSI touchscreen | Direct Pi DSI connection, fits factory DIN |
-| Power | Mausberry ignition-aware PSU | Clean shutdown on ignition off |
-| OBD adapter | OBDLink SX (USB) | Reads engine data via OBD-II port |
-| Audio harness | Metra 70-7552 | Retains Bose amplifier and speakers |
-| Tilt motor | Factory motor + L298N driver | Pi GPIO controls factory tilt mechanism |
-| Steering controls | PAC SWI-RC | Translates factory steering wheel buttons |
-| CarPlay/AA | OpenAuto Pro | Licensed Android Auto / Apple CarPlay |
+| SBC | Raspberry Pi 5, 4 GB | 8 GB unnecessary |
+| Storage | Transcend ESD320A 500 GB USB SSD | Via the hub. NVMe HAT ruled out |
+| Display | Waveshare 7" HDMI IPS 1024×600, capacitive | HDMI video + USB touch |
+| OBD | OBDLink SX (USB, STN chip) | OBD-II port under dash, driver side |
+| GPS | GlobalSat BU-353-S4 USB puck | gpsd on the Pi |
+| USB hub | Anker 4-port powered | Own 12V→5V 3 A supply |
+| Pi power | 12V→5V 5 A buck, USB-C | **Product not chosen**, see backlog |
+| Audio | Metra 70-7552 Bose retention harness | |
+| Steering controls | PAC SWI-RC | **Approach unverified**, see backlog |
+| Tilt motor | Factory mechanism + L298N | Current draw / end stops unmeasured |
 
-### OBDLink SX — What it is
-A USB OBD-II adapter using a genuine STN1110 chip (not a cheap ELM327 clone). Plugs into the RX-8's OBD-II port under the dash (driver's side) and connects to the Pi via USB. Translates the car's OBD-II protocol into serial data readable by `python-obd`. Chosen over clones for reliability, consistent timing, and zero Bluetooth pairing issues on Linux/Pi.
+Power: one ignition-switched 12V tap (add-a-fuse) feeding two separate buck
+converters, one for the Pi, one for the hub. Data: HDMI to screen, screen
+USB touch back to the Pi, one USB 3.0 cable Pi→hub; hub carries SSD,
+OBDLink SX and GPS.
 
----
-
-## Software Stack
+## Software stack
 
 | Layer | Technology |
 |---|---|
-| UI framework | Python 3 + PyQt5 |
-| OBD data | python-obd (async) |
-| Maps | TBD — Navit / QWebEngineView + OSM tiles |
-| CarPlay/AA | OpenAuto Pro |
-| Config persistence | JSON (`~/.rx8_headunit/config.json`) |
-| GPIO | gpiozero |
+| UI | Python 3 + PyQt5 |
+| OBD | python-obd (`obd.Async`) via `core/data_sources.py` |
+| Android Auto | OpenDash (openDsh/dash), built from source |
+| Offline nav | Organic Maps launched as a subprocess |
+| GPS | gpsd + gpsd-py3 |
+| Config | JSON at `~/.rx8_headunit/config.json` |
+| GPIO | gpiozero (tilt, ignition sense — not written yet) |
 
-### Development Environment
-- Oracle VirtualBox — Raspberry Pi Desktop (Bullseye i386)
-- VM location: `F:\VM_STUFF\MAZDA RX8 HeadUnit\`
-- Shared folder: `F:\VM_STUFF\RX8_Code\` ↔ `/media/RX8_Code/` in VM
-- Packages installed: `python3`, `PyQt5`, `python-serial`, `git`, `python-obd`, `gpiozero`
-- Guest Additions: kernel module loaded (`vboxguest`), manual mount required on boot:
-  ```bash
-  sudo mount -t vboxsf RX8_Code /media/RX8_Code
-  ```
+### Dev environment
 
----
+- Master copy: `F:\VM_STUFF\RX8_Code` on the desktop, pushed to the
+  private GitHub repo `SutraMK4/RX8_Headunit`. Other machines clone from
+  GitHub.
+- The app runs directly on Windows (`py main.py`) and in the VirtualBox VM
+  (Raspberry Pi Desktop, Bullseye i386; VM at `F:\VM_STUFF\MAZDA RX8 HeadUnit\`,
+  shared folder mounted with `sudo mount -t vboxsf RX8_Code /media/RX8_Code`).
+- Target is a 64-bit Pi 5 on Bookworm: bench-test on the real Pi early.
 
-## What Has Been Built
+## Code structure
 
-### 1. `obd_gauges.py` — Standalone gauge widget ✅
-
-A PyQt5 analogue gauge cluster with three gauges (RPM, Coolant Temp, Oil Temp) using simulated data. This file is the foundation for all gauge rendering.
-
-**Features:**
-- Custom-drawn analogue gauges via `QPainter` — no external gauge libraries
-- Smooth needle animation via lerp (60fps `QTimer`)
-- Colour zones: normal (Mazda red arc) → orange warning → red danger
-- Bezel glow effect when entering warning zone
-- Digital readout below needle
-- Realistic simulation: engine warm-up behaviour, sinusoidal RPM sweeps, oil temp lags coolant
-- `F` = fullscreen toggle, `Q`/`Esc` = exit
-- `set_value(v)` is the only method needed to feed live OBD data
-
-**Gauge config structure** (add new gauges by appending to `GAUGE_CONFIGS`):
-```python
-{
-    "label":   "RPM",
-    "unit":    "×1000",
-    "min":     0,
-    "max":     9000,
-    "warn":    7000,
-    "danger":  8000,
-    "step":    1000,
-    "minor":   5,
-    "fmt":     lambda v: f"{v/1000:.1f}",
-    "obd_cmd": "RPM",           # python-obd command name
-    "scale":   lambda v: v.magnitude,  # converts pint Quantity to float
-}
+```
+main.py                 AppState → DataManager → MainWindow, starts data
+obd_gauges.py           GaugeWidget; set_value(None) shows N/A
+core/app_state.py       config (deep-copied defaults), get()/set(), save
+core/data_sources.py    SimulatedSource, LiveSource, EmulatorSource, ReplaySource
+core/data_manager.py    one active source; values_updated / status_changed
+core/diagnostics.py     logging, timed(), record_error(), UI-stall watchdog
+core/event_store.py     SQLite events.db: distinct events, sessions, metrics
+core/gps.py             gpsd reader in a daemon thread (fix_changed signal)
+core/theme.py           design constants (SCREEN_W/H = 1024×600)
+screens/*.py            home, gauges, navigation, audio, settings, main window
+screens/debug_panel.py  debug window: metrics, UI stalls, errors, log (D key)
+tools/obd_logger.py     scan supported PIDs, record CSV for replay
+tools/run_emulator.py   ELM327-emulator launcher with Windows disconnect fix
+samples/                small CSV recorded from ELM327-emulator
 ```
 
----
+### Diagnostics and the UI-thread rule
 
-### 2. `rx8_headunit/` — Main application skeleton ✅
+- **Never block the UI thread** with network, serial, subprocess or file
+  waits. Use a daemon thread and a Qt signal (pattern: `core/gps.py`,
+  `_ConnectWorker` and `LiveSource._close` in `core/data_sources.py`).
+  History: gpsd was polled on the UI thread every 2 s; on Windows a refused
+  connection takes ~1 s, so the UI froze periodically. Closing the OBD
+  connection also blocked the UI ~0.4 s. Both moved to background threads.
+- Wrap anything worth measuring in `with timed("area.action"):` and call
+  `record_error("area.action", e)` in except blocks. Metrics record the
+  thread; slow UI-thread work shows red in the debug panel.
+- `diagnostics.install()` sets `sys.excepthook` / `threading.excepthook`:
+  uncaught exceptions are logged with stack and the app keeps running.
+- The stall watchdog (250 ms, config `debug.stall_ms`) records the UI
+  thread's stack during every freeze. Ask Roger for COPY REPORT from the
+  debug panel when he reports lag or errors.
+- Records: `~/.rx8_headunit/events.db` is the long-term history: one row
+  per *distinct* WARNING+ event (fingerprint = level + logger + message with
+  numbers replaced by # + last stack frame), with count / sessions / first
+  and last seen / stack. Sessions table has `clean_exit`; a cut-off session
+  is reported at next start (with faulthandler crash dump if any). Metrics
+  per session are stored at clean exit. Retention 90 days.
+- Text log `logs/headunit.log` is short-term: new file per session, last 3
+  sessions kept, RepeatFilter suppresses >3 identical messages per minute.
+  Ask Roger for EXPORT CSV (EVENTS tab) or COPY REPORT when debugging.
+- python-obd adds its own console handler (double printing);
+  `adopt_obd_logger()` removes it after `import obd`. pint's "Redefining"
+  warnings are silenced.
+- `py main.py --debug` = verbose + panel open.
 
-Full multi-screen PyQt5 application. Run with `python3 main.py` from the project root (where `obd_gauges.py` also lives).
+### Data layer contract
 
-#### Project structure
-```
-rx8_headunit/
-├── main.py
-├── obd_gauges.py          ← copy here from root
-├── core/
-│   ├── app_state.py
-│   ├── obd_manager.py
-│   └── theme.py
-└── screens/
-    ├── main_window.py
-    ├── home_screen.py
-    ├── gauge_screen.py
-    ├── navigation_screen.py
-    ├── audio_screen.py
-    └── settings_screen.py
-```
+- `DataManager` (on `state.data`) emits `values_updated(dict)` with
+  `{python-obd command name: float | None}` and
+  `status_changed(kind, status, detail)`.
+- `None` = not available. Gauges show N/A; never substitute fake values
+  when a real source is selected.
+- `LiveSource` connects in a daemon thread, then `watch()`es every supported
+  command before `start()`. Querying an un-watched command on `obd.Async`
+  returns an empty response (this was the original bug).
+- Emulator over TCP needs a fixed baudrate (38400); python-obd cannot
+  detect one on a socket. `EmulatorSource` does this.
+- Start the emulator with `tools/run_emulator.py`, not plain `elm -n 35000`.
+  ELM327-emulator only handles ConnectionResetError; on Windows a client
+  disconnect is ConnectionAbortedError (WinError 10053), after which plain
+  `elm` loops on that error and never accepts another client. Plain `elm`
+  also writes a DEBUG trace of every request (~2,600 lines/min) to `elm.log`
+  in the current folder; the launcher logs WARNING+ to
+  `~/.rx8_headunit/logs/emulator.log` instead (`--emu-verbose` for DEBUG).
+- `state.obd_status` is a short summary for the home screen
+  (simulated / live / emulator / replay / connecting / error / stopped).
+- Add a gauge: append to `GAUGE_CONFIGS` with a `key`; nothing else needed.
 
-#### `core/app_state.py`
-Central shared state passed to every screen. Holds:
-- `config` dict (loaded from / saved to `~/.rx8_headunit/config.json`)
-- `obd_connection` — the live `obd.Async` object (set by OBDManager)
-- `obd_status` — `"disconnected"` | `"connecting"` | `"connected"` | `"error"`
-- `current_screen` — name of active screen
-- `get(*keys)` / `set(*keys, value)` — nested config accessors
-- `save_config()` — persists to JSON
+## Screen status
 
-#### `core/obd_manager.py`
-Runs OBD connection in a `QThread`. Emits:
-- `status_changed(str)` — UI can react without blocking
-- `connection_ready(object)` — fires with the `obd.Async` connection
-
-Connection flags: `fast=False, timeout=30` (recommended for RX-8).
-
-#### `core/theme.py`
-**Single file for all visual design.** Every colour, font, and size constant lives here. Change this file to restyle the entire application. Key constants: `BG_PRIMARY`, `ACCENT` (Mazda red `#c0392b`), `TEXT_PRIMARY`, `WARN_ORANGE`, `WARN_RED`, `SUCCESS_GREEN`.
-
-#### `screens/main_window.py`
-Root `QMainWindow`. Contains:
-- `QStackedWidget` holding all five screens
-- `NavBar` — bottom navigation bar with five buttons + clock
-- `switch_screen(name)` — called by nav buttons and child screens
-- Keyboard shortcuts: `1`–`5` = switch screens, `F` = fullscreen, `Esc` = home
-
-#### `screens/home_screen.py`
-Dashboard with four quick-launch tiles (Gauges, Nav, Audio, Settings), OBD connection status, and Pi CPU temperature. Status refreshes every 2 seconds.
-
-#### `screens/gauge_screen.py`
-Hosts six `GaugeWidget` instances in a 3×2 grid:
-
-| Gauge | OBD command | Warning | Danger |
-|---|---|---|---|
-| RPM | `RPM` | 7,000 | 8,000 |
-| Coolant Temp | `COOLANT_TEMP` | 105°C | 118°C |
-| Oil Temp | `OIL_TEMP` | 120°C | 135°C |
-| Speed | `SPEED` | 220 km/h | 250 km/h |
-| Throttle | `THROTTLE_POS` | 95% | 100% |
-| Engine Load | `ENGINE_LOAD` | 90% | 100% |
-
-Automatically switches between simulated data and live OBD data depending on `state.obd_status`. Status strip in top-right corner shows `OBD: SIMULATED` (orange) or `OBD: LIVE` (green).
-
-#### `screens/navigation_screen.py`
-Skeleton with:
-- Top bar: GPS status, search placeholder, speed readout
-- `MapPlaceholder` frame — replace with actual map widget
-- Bottom controls: Back, Home, Recalc, North-up, GPS centre
-
-**Integration path options:**
-- **Option A**: Navit as subprocess, embed via `QWindow.fromWinId()`
-- **Option B**: `QWebEngineView` + local OSM tile server (offline tiles)
-- **Option C**: PyQt5 + Leaflet.js in embedded Chromium
-
-#### `screens/audio_screen.py`
-Skeleton with:
-- Now Playing card (album art placeholder + metadata)
-- Source selector: AUX / USB / Bluetooth / FM Radio / Android Auto
-- Volume slider (wired to `state.config`, ready for `amixer`/`pulsectl`)
-- Playback controls (⏮ ⏪ ⏯ ⏩ ⏭ — wired to TODO stubs)
-
-#### `screens/settings_screen.py`
-Six scrollable sections, all wired to `AppState`:
-
-| Section | Controls |
+| Screen | Status |
 |---|---|
-| OBD | Port (combo), Connect / Disconnect / Scan PIDs buttons, live status label |
-| Display | Brightness slider, screen timeout combo, fullscreen toggle |
-| Audio | Default volume slider |
-| Navigation | Maps path (text), GPS device (combo), units (metric/imperial) |
-| Startup | Default screen (combo), fullscreen on boot (checkbox) |
-| System | Pi temp readout, hostname field, Reboot / Shutdown buttons |
+| Home | Working |
+| Gauges | Working with all four sources (tested against ELM327-emulator) |
+| Navigation | Launches Organic Maps, gpsd in background thread, NO FIX fallback. RECALC/NORTH stubs |
+| Audio | Skeleton: TODO stubs for OpenDash, volume, source switching, playback |
+| Settings | Working. Data source section; brightness is a TODO |
 
-**Save All Settings** button writes everything to `~/.rx8_headunit/config.json`.
+## Decisions and ruled out
 
----
+- OpenAuto Pro: ruled out (vendor acquired, product discontinued) → OpenDash.
+- NVMe HAT: ruled out (wrong form factor for the drive, no real gain).
+- Tile server / QWebEngineView map: ruled out for now; Organic Maps subprocess
+  is the fallback, Android Auto is the main nav.
+- Pi 5 4 GB is sufficient.
+- Live OBD failure shows errors and N/A; it does not silently fall back to
+  simulation.
 
-## OBD-II — Available PIDs on RX-8
+## Verification backlog (do not treat as fact)
 
-Full python-obd docs: https://python-obd.readthedocs.io/en/latest/
-Full command table: https://python-obd.readthedocs.io/en/latest/Command%20Tables/
+1. **PAC SWI-RC → Pi.** The SWI-RC makes an aftermarket-stereo remote signal;
+   it is not a USB/serial device and the Pi has no analog input. Likely
+   alternative: read the RX-8 steering wheel resistor ladder via an ADC
+   (e.g. ADS1115 over I²C). Check the SWI-RC manual and RX-8 SWC wiring first.
+2. **Graceful shutdown.** Hard power cut on an SSD-booted Pi risks
+   corruption. Needs ignition-sense GPIO + hold-up (supercap / small UPS /
+   delay) or a read-only root. Decide ACC vs IGN vs constant + sense.
+3. **Pi power supply product.** Pick a real product from its datasheet:
+   wide 12V input with automotive surge tolerance, 5V ≥ 5 A, Pi 5 connection.
+4. **Display config.** Legacy `hdmi_group/hdmi_mode/hdmi_cvt` is probably
+   ignored on Pi 5 Bookworm; likely `video=HDMI-A-1:1024x600@60` in
+   `cmdline.txt`. Check the Waveshare model's own instructions.
+5. **OpenDash build** on Pi 5 / Bookworm: follow current upstream docs.
+6. **Organic Maps on Linux arm64**: confirm a build exists (AppImage vs
+   Flatpak). `_find_organic_maps()` already checks native, AppImage, Flatpak;
+   the download URL in `navigation_screen.py` is a guess.
+7. **Serial port naming.** Use `/dev/serial/by-id/` or udev rules for the
+   OBDLink SX and GPS, never "ttyUSB0 comes first".
+8. **RX-8 factory GPS antenna connector**: unverified, ignore until the puck
+   has been tested in the car.
+9. **Oil temp over OBD (PID 0x5C)**: may not be supported on the RX-8. Run
+   `tools/obd_logger.py scan`; the gauge already shows N/A if not.
+10. **VM vs target.** VM is 32-bit x86 Bullseye; target is 64-bit Bookworm.
 
-### Confirmed available on RX-8 2004 (standard OBD-II Mode 01)
+## Project plan
 
-| Command | Description | Display use |
-|---|---|---|
-| `RPM` | Engine RPM | ✅ Gauge |
-| `COOLANT_TEMP` | Coolant temperature | ✅ Gauge |
-| `OIL_TEMP` | Oil temperature (PID 5C — verify on car) | ✅ Gauge |
-| `SPEED` | Vehicle speed km/h | ✅ Gauge |
-| `THROTTLE_POS` | Throttle position % | ✅ Gauge |
-| `ENGINE_LOAD` | Calculated engine load % | ✅ Gauge |
-| `INTAKE_TEMP` | Intake air temperature | Future gauge |
-| `MAF` | Mass air flow g/s | Future gauge |
-| `TIMING_ADVANCE` | Ignition timing °BTDC | Future gauge |
-| `FUEL_LEVEL` | Fuel tank % | Future gauge |
-| `INTAKE_PRESSURE` | Manifold pressure kPa | Future gauge |
-| `SHORT_FUEL_TRIM_1` | Short term fuel trim % | Diagnostic |
-| `LONG_FUEL_TRIM_1` | Long term fuel trim % | Diagnostic |
-| `O2_B1S1` / `O2_B1S2` | O2 sensor voltages | Diagnostic |
-| `GET_DTC` | Fault codes | Diagnostic |
-| `ELM_VOLTAGE` | Battery voltage from OBD port | Info |
+**Phase 0 — dev environment.** Done on the desktop. Laptop: re-clone from
+GitHub, install Python from python.org (tick "Add to PATH"),
+`py -m pip install -r requirements.txt`.
 
-**Note on OIL_TEMP:** The RX-8 factory oil temp gauge runs off a dedicated sensor. PID 5C may return null — run `connection.supported_commands` after first connection to confirm.
+**Phase 1 — OBD pipeline.** Done: data-source layer, emulator test, N/A
+handling, replay, logger. Remaining: run `obd_logger.py scan` and record
+idle + drive logs in the RX-8; decide which gauges stay based on the scan.
 
-### PID scan (run after first OBD connection)
-```python
-import obd
-connection = obd.OBD()
-print(connection.supported_commands)
-```
+**Phase 2 — software.** Audio screen (OpenDash launcher, same subprocess
+pattern as navigation, source switching); settings brightness and GPS port by
+`/dev/serial/by-id/`; navigation install on the Pi; systemd autostart;
+graceful shutdown on ignition-off.
 
-### ECU extras (no stock ECU mods needed for above)
-Standard OBD-II covers everything in the table above — no ECU modification required. The OBDLink SX reads what the stock ECU already broadcasts.
+**Phase 3 — procurement.** Resolve backlog items 1–3 first, then order.
 
-For future extras: wideband AFR needs an AEM X-Series wideband kit; EGT needs a MAX31855 thermocouple amplifier on Pi GPIO. Both are analogue additions, not ECU modifications.
+**Phase 4 — bench bring-up on the Pi.** Bookworm 64-bit on the SSD, display
+config, gpsd, OBDLink, Organic Maps, OpenDash.
 
----
+**Phase 5 — car install.** Fuse tap and power, ignition sense, SWC
+interface, tilt motor, GPS placement, Bose harness, mounting.
 
-## TODO Map (Integration Hooks)
+**Phase 6 — polish.** Roger's design pass, real-world testing.
 
-Search `# TODO` in the codebase. Key integration points:
+## Open questions for Roger
 
-| File | TODO | What to wire |
-|---|---|---|
-| `navigation_screen.py` | Map widget | Navit / QWebEngineView / OSM |
-| `navigation_screen.py` | GPS | gpsd or direct serial `/dev/ttyUSB0` |
-| `audio_screen.py` | Volume | `amixer` or `pulsectl` library |
-| `audio_screen.py` | Source switching | Hardware relay or software routing |
-| `audio_screen.py` | Playback | python-vlc or mpd client |
-| `settings_screen.py` | Brightness | `rpi-backlight` or `xrandr` |
-| `obd_manager.py` | Ready to use | Just needs OBDLink SX plugged in |
+- 12V source: ACC, IGN, or constant + ignition sense?
+- Keep factory steering wheel controls via an ADC instead of the PAC unit?
+- Physical space: where do the Pi and hub sit, how much depth behind the screen?
 
----
+## Known cosmetic debt
 
-## Known Issues / Cosmetic Debt
-
-- Gauge tick labels clip at the bottom of the arc (8.0/9.0 on RPM, 120–150 on temp gauges) — arc needs scaling in slightly
-- Unit labels (×1000, °C) overlap bottom tick marks — needs vertical offset adjustment
-- VirtualBox shared folder requires manual mount on each VM boot (`sudo mount -t vboxsf RX8_Code /media/RX8_Code`) — add to `/etc/fstab` to automate
-- `vboxsf` group not present (Guest Additions not fully installed) — drag-and-drop file transfer not working; use shared folder method
-
----
-
-## Next Steps (Suggested Order)
-
-1. **Get launcher running** — copy all files to `F:\VM_STUFF\RX8_Code\rx8_headunit\`, run `python3 main.py`
-2. **Design pass** — restyle via `core/theme.py` and individual screen files
-3. **Fix gauge label clipping** — cosmetic fix in `obd_gauges.py`
-4. **Wire OBD** — plug in OBDLink SX, use Settings → OBD → Connect, verify PID scan
-5. **Navigation** — decide on map solution, integrate into `MapPlaceholder`
-6. **Audio** — wire volume to `amixer`, implement source switching
-7. **Real hardware** — migrate from VM to actual Raspberry Pi 5
-8. **Tilt motor** — implement GPIO control via L298N in a new `core/tilt_manager.py`
-9. **Steering wheel controls** — PAC SWI-RC integration
-10. **OpenAuto Pro** — CarPlay/Android Auto overlay or tab integration
+- Gauge tick labels clip at the bottom of the arc; unit labels overlap the
+  bottom ticks (`obd_gauges.py`).
+- Fullscreen checkbox in Settings has no visible box with the current style.

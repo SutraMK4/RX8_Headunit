@@ -1,2 +1,5 @@
 __pycache__/
 *.pyc
+
+# ELM327-emulator log files (written to the folder it is started from)
+elm.log*
