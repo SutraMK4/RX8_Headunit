@@ -64,6 +64,22 @@ GAUGE_CONFIGS = [
         "key":     "OIL_TEMP",
     },
     {
+        # From the aftermarket sender (core/oil_sensors.py), not OBD.
+        # The danger for oil pressure is LOW pressure; the gauge only colours
+        # the high end, so warn/danger sit above the scale for now. A proper
+        # rpm-dependent low-pressure warning comes once real data exists.
+        "label":   "OIL PRESS",
+        "unit":    "bar",
+        "min":     0,
+        "max":     10,
+        "warn":    11,
+        "danger":  12,
+        "step":    2,
+        "minor":   4,
+        "fmt":     lambda v: f"{v:.1f}",
+        "key":     "OIL_PRESSURE",
+    },
+    {
         "label":   "SPEED",
         "unit":    "km/h",
         "min":     0,
@@ -85,7 +101,9 @@ GAUGE_CONFIGS = [
         "step":    10,
         "minor":   2,
         "fmt":     lambda v: f"{v:.0f}",
-        "key":     "THROTTLE_POS",
+        # RX-8 reports the raw throttle valve (THROTTLE_POS never goes below
+        # ~12 % at idle); the relative value starts near 0 like a real 0-100 %.
+        "key":     "RELATIVE_THROTTLE_POS",
     },
     {
         "label":   "ENGINE LOAD",
@@ -101,6 +119,8 @@ GAUGE_CONFIGS = [
     },
 ]
 
+
+GRID_COLUMNS = 4          # 7 gauges: engine + oil on top, driving below
 
 # Keys the data sources should deliver for this screen
 GAUGE_KEYS = tuple(cfg["key"] for cfg in GAUGE_CONFIGS)
@@ -143,7 +163,7 @@ class GaugeScreen(QWidget):
 
         for i, cfg in enumerate(GAUGE_CONFIGS):
             g = GaugeWidget(cfg)
-            grid.addWidget(g, i // 3, i % 3)
+            grid.addWidget(g, i // GRID_COLUMNS, i % GRID_COLUMNS)
             self._gauges[cfg["key"]] = g
 
         layout.addLayout(grid)

@@ -24,7 +24,7 @@ import logging
 from PyQt5.QtCore import QObject, pyqtSignal
 
 from core.diagnostics import timed, record_error
-from core.oil_temp import OilTempSource, KEY as OIL_KEY
+from core.oil_sensors import OilSensorSource
 
 from core.data_sources import (
     DEFAULT_KEYS, SOURCE_KINDS,
@@ -48,16 +48,18 @@ class DataManager(QObject):
         self.state.obd_status = "stopped"
         self._last_primary = {}
 
-        # Oil temperature comes from its own sensor (not OBD), laid over the
-        # main source's values. config["oil_temp"]["source"] = off|ads1115|simulated
-        oil_cfg = state.get("oil_temp", default={}) or {}
+        # Oil temperature and pressure come from their own senders (not OBD),
+        # laid over the main source's values.
+        # config["oil_sensors"]["source"] = off | ads1115 | simulated
+        oil_cfg = state.get("oil_sensors", default={}) or {}
         self.oil = None
-        if oil_cfg.get("source", "off") != "off" and OIL_KEY in self.keys:
-            self.oil = OilTempSource(oil_cfg, parent=self)
-            self._oil_value = None
+        self._oil_values = {}
+        if oil_cfg.get("source", "off") != "off":
+            self.oil = OilSensorSource(oil_cfg, parent=self)
+            self._oil_keys = [k for k in self.oil.keys if k in self.keys]
             self.oil.values_updated.connect(self._on_oil)
             self.oil.status_changed.connect(
-                lambda st, d: log.info("oil temp %s: %s", st, d))
+                lambda st, d: log.info("oil sensors %s: %s", st, d))
 
     # ── public API ─────────────────────────────────────────────────
     @property
@@ -109,7 +111,8 @@ class DataManager(QObject):
     def _merged(self):
         values = dict(self._last_primary) or {k: None for k in self.keys}
         if self.oil is not None:
-            values[OIL_KEY] = self._oil_value     # sensor wins over OBD/sim
+            for k in self._oil_keys:             # sensor wins over OBD/sim
+                values[k] = self._oil_values.get(k)
         return values
 
     def _on_primary(self, values):
@@ -117,7 +120,7 @@ class DataManager(QObject):
         self.values_updated.emit(self._merged())
 
     def _on_oil(self, values):
-        self._oil_value = values.get(OIL_KEY)
+        self._oil_values.update(values)
         self.values_updated.emit(self._merged())
 
     # ── internals ──────────────────────────────────────────────────

@@ -35,7 +35,7 @@ core/
   data_manager.py            Owns the active source, forwards its signals
   diagnostics.py             Logging, timings, error capture, UI-freeze watchdog
   fonts.py                   Loads the bundled fonts (assets/fonts)
-  oil_temp.py                Oil temperature from an NTC sender via ADS1115
+  oil_sensors.py             Oil temperature + pressure senders via ADS1115
   event_store.py             SQLite history of distinct events, sessions, metrics
   gps.py                     gpsd reader in a background thread
   theme.py                   All colours, fonts, sizes — edit here for design
@@ -51,7 +51,7 @@ tools/
   obd_logger.py              Scan the car's PIDs, record OBD data to CSV
   run_emulator.py            ELM327-emulator launcher with a Windows disconnect fix
   fetch_figma_assets.py      Downloads a Figma frame's SVG assets into assets/<screen>/
-  oil_temp_cal.py            Oil temp sender calibration (beta) and live ADC reading
+  oil_sensor_cal.py          Oil sender calibration (beta) and live ADC readout
 assets/
   fonts/                     Bundled fonts + OFL licences
   home_v2/                   SVGs for the v2 home screen (from Figma)
@@ -216,13 +216,14 @@ Rule: never do network, serial or file-system waits on the UI thread. Use a
 background thread and a Qt signal (see `core/gps.py`). The UI STALLS tab
 tells you when this rule was broken.
 
-## Oil temperature
+## Oil temperature and pressure
 
-The RX-8 has no factory oil temperature sensor, so OBD cannot deliver it.
-The plan (aftermarket NTC sender → ADS1115 on the Pi's I²C) and the
-calibration steps are in [`RX8_OIL_TEMP_PLAN.md`](RX8_OIL_TEMP_PLAN.md).
-Until the sensor exists the gauge shows N/A; for development set
-`"oil_temp": {"source": "simulated"}` in the config.
+The RX-8 has no factory oil temperature sensor, and the dash oil pressure
+"gauge" is driven by a switch, so neither value comes from OBD. Both come
+from aftermarket senders read by an ADS1115 on the Pi's I²C bus — plan,
+wiring and calibration: [`RX8_OIL_SENSORS_PLAN.md`](RX8_OIL_SENSORS_PLAN.md).
+Until the senders exist the gauges show N/A; for development set
+`"oil_sensors": {"source": "simulated"}` in the config.
 
 ## Adding a gauge
 

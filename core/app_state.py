@@ -47,18 +47,19 @@ DEFAULT_CONFIG = {
         "hostname": "rx8-headunit",
         "driver_name": "Roger",   # greeting on the v2 home screen
     },
-    "oil_temp": {
-        # Aftermarket NTC sender via ADS1115 (see RX8_OIL_TEMP_PLAN.md)
+    "oil_sensors": {
+        # Aftermarket oil temperature + pressure senders via one ADS1115
+        # (see RX8_OIL_SENSORS_PLAN.md). Missing keys fall back to the
+        # defaults in core/oil_sensors.py.
         "source": "off",          # off | ads1115 | simulated
         "i2c_bus": 1,
         "i2c_address": "0x48",
-        "channel": 0,             # sender divider on A0
-        "ref_channel": 3,         # 3V3 on A3 (ratiometric); null = assume 3.3 V
-        "r_fixed": None,          # ohms, top resistor of the divider
-        "r0": None,               # calibration: sender ohms at t0
-        "t0": None,               # °C
-        "beta": None,             # K, from tools/oil_temp_cal.py
-        "smooth_s": 3,
+        "smooth_s": 1.0,
+        "temp": {"enabled": True, "channel": 0, "ref_channel": 3,
+                 "r_fixed": None, "r0": None, "t0": None, "beta": None},
+        "pressure": {"enabled": True, "channel": 1, "ref_channel": 2,
+                     "out_divider": 1.5, "ref_divider": 2.0,
+                     "v_min_frac": 0.1, "v_max_frac": 0.9, "p_max_bar": 10.0},
     },
     "debug": {
         "verbose": False,     # DEBUG-level logging (also: py main.py --debug)

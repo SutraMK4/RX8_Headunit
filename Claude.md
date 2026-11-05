@@ -94,7 +94,7 @@ core/data_sources.py    SimulatedSource, LiveSource, EmulatorSource, ReplaySourc
 core/data_manager.py    one active source; values_updated / status_changed
 core/diagnostics.py     logging, timed(), record_error(), UI-stall watchdog
 core/event_store.py     SQLite events.db: distinct events, sessions, metrics
-core/oil_temp.py        OilTempSource: NTC via ADS1115, daemon thread, beta model
+core/oil_sensors.py     OilSensorSource: oil temp (NTC) + pressure (ratiometric) via ADS1115
 core/gps.py             gpsd reader in a daemon thread (fix_changed signal)
 core/theme.py           design constants (SCREEN_W/H = 1024×600)
 screens/*.py            home, gauges, navigation, audio, settings, main window
@@ -224,9 +224,12 @@ samples/                small CSV recorded from ELM327-emulator
 8. **RX-8 factory GPS antenna connector**: unverified, ignore until the puck
    has been tested in the car.
 9. **Oil temp over OBD (PID 0x5C)**: RESOLVED 5 Nov 2026 — not supported. The
-   2004–08 RX-8 has no factory oil temp sensor. Decided: aftermarket NTC
-   sender → ADS1115 (I²C) → `core/oil_temp.py`, merged over the main source
-   by DataManager. Plan: `RX8_OIL_TEMP_PLAN.md`. Rejected: Arduino+MCP2515
+   2004–08 RX-8 has no factory oil temp sensor, and the S1 dash oil pressure
+   gauge is switch-driven. Decided: aftermarket NTC temp sender + ratiometric
+   0.5–4.5 V pressure transducer → one ADS1115 (I²C) → `core/oil_sensors.py`,
+   merged over the main source by DataManager. Plan: `RX8_OIL_SENSORS_PLAN.md`.
+   Low-pressure warning: Roger's MX-5 method (warm-idle baseline; MX-5 sits
+   1.8–2.2 bar) — RX-8 baseline must be measured first. Rejected: Arduino+MCP2515
    broadcasting frames onto the car's CAN bus (risk to ECU/ABS/EPS bus).
    Later idea: listen-only CAN HAT for fast native data (needs RX-8 CAN IDs).
 10. **VM vs target.** VM is 32-bit x86 Bullseye; target is 64-bit Bookworm.

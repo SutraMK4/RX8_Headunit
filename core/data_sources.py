@@ -47,7 +47,7 @@ DEFAULT_KEYS = (
     "COOLANT_TEMP",
     "OIL_TEMP",
     "SPEED",
-    "THROTTLE_POS",
+    "RELATIVE_THROTTLE_POS",
     "ENGINE_LOAD",
 )
 
@@ -117,8 +117,8 @@ class SimulatedSource(DataSource):
 
     def start(self):
         self._reset()
-        self.supported = {"RPM", "COOLANT_TEMP", "OIL_TEMP",
-                          "SPEED", "THROTTLE_POS", "ENGINE_LOAD"} & set(self.keys)
+        self.supported = {"RPM", "COOLANT_TEMP", "OIL_TEMP", "OIL_PRESSURE", "SPEED",
+                          "THROTTLE_POS", "RELATIVE_THROTTLE_POS", "ENGINE_LOAD"} & set(self.keys)
         self._timer.start()
         self._set_status(STATUS_RUNNING, "simulated data")
 
@@ -149,12 +149,18 @@ class SimulatedSource(DataSource):
         throttle = max(0.0, min(100.0, (rpm - 800) / 8200 * 100 + random.uniform(-3, 3)))
         load = max(0.0, min(100.0, throttle * 0.85 + random.uniform(-2, 2)))
 
+        # oil pressure: rises with rpm, a little higher while the oil is cold
+        oil_p = max(0.0, 1.2 + rpm / 9000 * 4.5 + max(0.0, (80 - self._oil) / 40)
+                    + random.uniform(-0.05, 0.05))
+
         sim = {
             "RPM": rpm,
+            "OIL_PRESSURE": oil_p,
             "COOLANT_TEMP": self._coolant,
             "OIL_TEMP": self._oil,
             "SPEED": speed,
             "THROTTLE_POS": throttle,
+            "RELATIVE_THROTTLE_POS": throttle,
             "ENGINE_LOAD": load,
         }
         self.values_updated.emit({k: sim.get(k) for k in self.keys})
