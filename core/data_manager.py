@@ -93,8 +93,10 @@ class DataManager(QObject):
         get = self.state.get
         if kind == "live":
             port = get("obd", "port", default="auto")
+            baud = get("obd", "baud", default="auto")
             return LiveSource(self.keys,
                               port=None if port in ("", "auto") else port,
+                              baudrate=None if baud in ("", "auto", None) else int(baud),
                               fast=get("obd", "fast", default=False),
                               timeout=get("obd", "timeout", default=30))
         if kind == "emulator":

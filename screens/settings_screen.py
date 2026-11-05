@@ -123,6 +123,18 @@ class SettingsScreen(QWidget):
         section.add(port_row)
         self._refresh_ports()
 
+        # Adapter speed (auto-detect fails on many cheap ELM327 clones)
+        baud_row = Row("OBD baud")
+        self._obd_baud = QComboBox()
+        self._obd_baud.addItems(["auto", "38400", "9600", "115200", "230400", "500000"])
+        self._obd_baud.setCurrentText(str(self.state.get("obd", "baud", default="auto")))
+        self._obd_baud.setStyleSheet(combo_style())
+        baud_row.add(self._obd_baud)
+        baud_hint = QLabel("cheap ELM327 clones: 38400")
+        baud_hint.setStyleSheet(f"color: {theme.TEXT_DIM}; font-size: {theme.FONT_SIZE_SM}pt;")
+        baud_row.add(baud_hint)
+        section.add(baud_row)
+
         # Emulator address
         emu_row = Row("Emulator")
         self._emu_port = QLineEdit(self.state.get("data", "emulator_port",
@@ -388,6 +400,7 @@ class SettingsScreen(QWidget):
             port = port.split(" — ", 1)[0]
         self.state.set("data", "source",        self._data_source.currentText())
         self.state.set("obd",  "port",          port)
+        self.state.set("obd",  "baud",          self._obd_baud.currentText())
         self.state.set("data", "emulator_port", self._emu_port.text().strip())
         self.state.set("data", "replay_file",   self._replay_file.text().strip())
         self.state.set("data", "replay_speed",  float(self._replay_speed.currentText()))

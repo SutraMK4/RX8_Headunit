@@ -8,6 +8,7 @@ back (core/data_sources.py). Runs without the head unit UI.
   Scan what the car supports (do this first, ignition on):
       py tools/obd_logger.py scan
       py tools/obd_logger.py scan --port COM5
+      py tools/obd_logger.py scan --port COM5 --baud 38400   # cheap ELM327 clones
 
   Record (Ctrl+C to stop, or --seconds N). `log` and `record` are the same:
       py tools/obd_logger.py log --port COM4 --seconds 600 --out data/rx8_idle.csv
@@ -33,10 +34,12 @@ DEFAULT_KEYS = ["RPM", "COOLANT_TEMP", "OIL_TEMP", "SPEED",
                 "SHORT_FUEL_TRIM_1", "LONG_FUEL_TRIM_1", "CONTROL_MODULE_VOLTAGE"]
 
 
-def connect(port, async_=False):
+def connect(port, async_=False, baud=None):
     import obd
     kwargs = dict(portstr=None if port in (None, "", "auto") else port, fast=False, timeout=30)
-    if port and port.startswith("socket://"):
+    if baud:
+        kwargs["baudrate"] = baud    # skip auto-detection (fails on many clones)
+    elif port and port.startswith("socket://"):
         kwargs["baudrate"] = 38400   # no baud detection over TCP
     conn = (obd.Async if async_ else obd.OBD)(**kwargs)
     if conn.status() != obd.OBDStatus.CAR_CONNECTED:
@@ -49,7 +52,7 @@ def connect(port, async_=False):
 
 def cmd_scan(args):
     import obd
-    conn = connect(args.port)
+    conn = connect(args.port, baud=args.baud)
     names = sorted(c.name for c in conn.supported_commands)
     print(f"\n{len(names)} supported commands:")
     for n in names:
@@ -68,7 +71,7 @@ def cmd_scan(args):
 
 def cmd_record(args):
     import obd
-    conn = connect(args.port, async_=True)
+    conn = connect(args.port, async_=True, baud=args.baud)
     keys = [k for k in (args.keys.split(",") if args.keys else DEFAULT_KEYS)
             if obd.commands.has_name(k) and conn.supports(obd.commands[k])]
     if not keys:
@@ -118,11 +121,13 @@ def main():
 
     s = sub.add_parser("scan", help="list supported commands")
     s.add_argument("--port", default="auto")
+    s.add_argument("--baud", type=int, help="fixed baud rate, e.g. 38400 (default: auto-detect)")
     s.add_argument("--out", help="also save the list to this file")
     s.set_defaults(func=cmd_scan)
 
     r = sub.add_parser("record", aliases=["log"], help="record values to CSV")
     r.add_argument("--port", default="auto")
+    r.add_argument("--baud", type=int, help="fixed baud rate, e.g. 38400 (default: auto-detect)")
     r.add_argument("--out", required=True)
     r.add_argument("--hz", type=float, default=5.0,
                    help="rows per second (default 5; the car limits real throughput)")

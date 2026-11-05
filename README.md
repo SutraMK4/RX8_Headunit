@@ -103,6 +103,10 @@ py tools/obd_logger.py scan --port COM5 --out logs/rx8_supported.txt
 py tools/obd_logger.py record --port COM5 --out logs/rx8_idle.csv
 ```
 
+Cheap ELM327 clones often fail python-obd's speed auto-detection (endless
+`Failed to read port`). Give the speed explicitly: `--baud 38400` for the
+logger, Settings → OBD baud → 38400 in the head unit.
+
 On the Pi use the stable port path, e.g.
 `--port /dev/serial/by-id/usb-ScanTool.net_OBDLink_SX_...` (Settings → OBD
 port → Refresh lists what is plugged in). `scan` tells you which of the six

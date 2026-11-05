@@ -52,6 +52,11 @@ converters, one for the Pi, one for the hub. Data: HDMI to screen, screen
 USB touch back to the Pi, one USB 3.0 cable Pi→hub; hub carries SSD,
 OBDLink SX and GPS.
 
+Current adapter for testing (Nov 2026): a cheap USB ELM327 v2.1 clone
+(USB VID:PID 4C4A:4155, COM5 on the desktop). Answers at 38400 baud; python-obd
+auto baud detection fails on it, so config `obd.baud` / logger `--baud 38400`.
+The ELM chip is powered by the car's OBD socket, not USB.
+
 ## Software stack
 
 | Layer | Technology |

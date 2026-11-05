@@ -22,6 +22,9 @@ DEFAULT_CONFIG = {
         # "auto" lets python-obd scan. On the Pi prefer the stable path
         # /dev/serial/by-id/usb-... ; on Windows e.g. "COM5".
         "port": "auto",
+        # "auto" = python-obd detects the speed. Cheap ELM327 clones often
+        # fail auto-detection ("Failed to read port"); set 38400 for those.
+        "baud": "auto",
         "fast": False,      # more reliable on the RX-8
         "timeout": 30,
     },
