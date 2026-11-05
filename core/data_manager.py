@@ -24,6 +24,7 @@ import logging
 from PyQt5.QtCore import QObject, pyqtSignal
 
 from core.diagnostics import timed, record_error
+from core.oil_temp import OilTempSource, KEY as OIL_KEY
 
 from core.data_sources import (
     DEFAULT_KEYS, SOURCE_KINDS,
@@ -45,6 +46,18 @@ class DataManager(QObject):
         self.keys = tuple(keys)
         self.source = None
         self.state.obd_status = "stopped"
+        self._last_primary = {}
+
+        # Oil temperature comes from its own sensor (not OBD), laid over the
+        # main source's values. config["oil_temp"]["source"] = off|ads1115|simulated
+        oil_cfg = state.get("oil_temp", default={}) or {}
+        self.oil = None
+        if oil_cfg.get("source", "off") != "off" and OIL_KEY in self.keys:
+            self.oil = OilTempSource(oil_cfg, parent=self)
+            self._oil_value = None
+            self.oil.values_updated.connect(self._on_oil)
+            self.oil.status_changed.connect(
+                lambda st, d: log.info("oil temp %s: %s", st, d))
 
     # ── public API ─────────────────────────────────────────────────
     @property
@@ -52,6 +65,8 @@ class DataManager(QObject):
         return self.source.kind if self.source else None
 
     def start(self):
+        if self.oil is not None:
+            self.oil.start()
         self.switch(self.state.get("data", "source", default="simulated"))
 
     def switch(self, kind):
@@ -62,7 +77,7 @@ class DataManager(QObject):
         self.stop()
         with timed(f"data.start.{kind}"):
             self.source = self._build(kind)
-            self.source.values_updated.connect(self.values_updated)
+            self.source.values_updated.connect(self._on_primary)
             self.source.status_changed.connect(self._on_status)
             self.source.start()
 
@@ -83,10 +98,27 @@ class DataManager(QObject):
     def shutdown(self):
         """Connect to QApplication.aboutToQuit. Never blocks: a connect still
         in progress runs in a daemon thread and is simply abandoned."""
+        if self.oil is not None:
+            self.oil.stop()
         self.stop()
 
     def supported_command_names(self):
         return self.source.supported_command_names() if self.source else []
+
+    # ── value merging ──────────────────────────────────────────────
+    def _merged(self):
+        values = dict(self._last_primary) or {k: None for k in self.keys}
+        if self.oil is not None:
+            values[OIL_KEY] = self._oil_value     # sensor wins over OBD/sim
+        return values
+
+    def _on_primary(self, values):
+        self._last_primary = values
+        self.values_updated.emit(self._merged())
+
+    def _on_oil(self, values):
+        self._oil_value = values.get(OIL_KEY)
+        self.values_updated.emit(self._merged())
 
     # ── internals ──────────────────────────────────────────────────
     def _build(self, kind):

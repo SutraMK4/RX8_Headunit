@@ -47,6 +47,19 @@ DEFAULT_CONFIG = {
         "hostname": "rx8-headunit",
         "driver_name": "Roger",   # greeting on the v2 home screen
     },
+    "oil_temp": {
+        # Aftermarket NTC sender via ADS1115 (see RX8_OIL_TEMP_PLAN.md)
+        "source": "off",          # off | ads1115 | simulated
+        "i2c_bus": 1,
+        "i2c_address": "0x48",
+        "channel": 0,             # sender divider on A0
+        "ref_channel": 3,         # 3V3 on A3 (ratiometric); null = assume 3.3 V
+        "r_fixed": None,          # ohms, top resistor of the divider
+        "r0": None,               # calibration: sender ohms at t0
+        "t0": None,               # °C
+        "beta": None,             # K, from tools/oil_temp_cal.py
+        "smooth_s": 3,
+    },
     "debug": {
         "verbose": False,     # DEBUG-level logging (also: py main.py --debug)
         "stall_ms": 250,      # UI freezes longer than this are recorded

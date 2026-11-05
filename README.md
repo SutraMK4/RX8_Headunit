@@ -35,6 +35,7 @@ core/
   data_manager.py            Owns the active source, forwards its signals
   diagnostics.py             Logging, timings, error capture, UI-freeze watchdog
   fonts.py                   Loads the bundled fonts (assets/fonts)
+  oil_temp.py                Oil temperature from an NTC sender via ADS1115
   event_store.py             SQLite history of distinct events, sessions, metrics
   gps.py                     gpsd reader in a background thread
   theme.py                   All colours, fonts, sizes — edit here for design
@@ -50,6 +51,7 @@ tools/
   obd_logger.py              Scan the car's PIDs, record OBD data to CSV
   run_emulator.py            ELM327-emulator launcher with a Windows disconnect fix
   fetch_figma_assets.py      Downloads a Figma frame's SVG assets into assets/<screen>/
+  oil_temp_cal.py            Oil temp sender calibration (beta) and live ADC reading
 assets/
   fonts/                     Bundled fonts + OFL licences
   home_v2/                   SVGs for the v2 home screen (from Figma)
@@ -112,6 +114,9 @@ On the Pi use the stable port path, e.g.
 port → Refresh lists what is plugged in). `scan` tells you which of the six
 gauges the RX-8 can feed. Stop recording with Ctrl+C, then play it back with
 the `replay` source.
+
+What each value means, with ranges from a real RX-8 drive:
+[`RX8_OBD_PIDS.md`](RX8_OBD_PIDS.md).
 
 CSV format: header `elapsed_s,RPM,COOLANT_TEMP,...`. Columns are python-obd
 command names, values are plain numbers (rpm, °C, km/h, %), empty = no reading.
@@ -210,6 +215,14 @@ except Exception as e:
 Rule: never do network, serial or file-system waits on the UI thread. Use a
 background thread and a Qt signal (see `core/gps.py`). The UI STALLS tab
 tells you when this rule was broken.
+
+## Oil temperature
+
+The RX-8 has no factory oil temperature sensor, so OBD cannot deliver it.
+The plan (aftermarket NTC sender → ADS1115 on the Pi's I²C) and the
+calibration steps are in [`RX8_OIL_TEMP_PLAN.md`](RX8_OIL_TEMP_PLAN.md).
+Until the sensor exists the gauge shows N/A; for development set
+`"oil_temp": {"source": "simulated"}` in the config.
 
 ## Adding a gauge
 

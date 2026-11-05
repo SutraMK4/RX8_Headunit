@@ -16,3 +16,6 @@ gpsd-py3>=0.3.0
 # Dev only (not needed on the Pi): ELM327 emulator for testing the live
 # OBD code path without the car. Run with:  py tools/run_emulator.py
 # ELM327-emulator>=3.0
+
+# Oil temperature sender via ADS1115 (I2C) — Raspberry Pi / Linux only
+smbus2>=0.4; sys_platform == "linux"
